@@ -1,0 +1,7 @@
+# Command Line Interface to load data into InfluxDB (Need to install InfluxDB CLI)
+influx write \        
+  --host http://localhost:8086 \
+  -b sensors_data \    
+  -o my-org \      
+  -t my-super-secret-admin-token-12345 \
+  -f sps30_mock_influx.csv 

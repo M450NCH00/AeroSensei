@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@layer utilities {
+  /* Apple-Style Color Shifting and Floating Animation */
+  @keyframes blob-shift {
+    0% { 
+      transform: translate(0px, 0px) scale(1); 
+      filter: blur(120px) hue-rotate(0deg); 
+    }
+    33% { 
+      transform: translate(40px, -60px) scale(1.1); 
+      filter: blur(120px) hue-rotate(45deg); /* Shifts the color forward */
+    }
+    66% { 
+      transform: translate(-30px, 30px) scale(0.9); 
+      filter: blur(120px) hue-rotate(-45deg); /* Shifts the color backward */
+    }
+    100% { 
+      transform: translate(0px, 0px) scale(1); 
+      filter: blur(120px) hue-rotate(0deg); 
+    }
+  }
+
+  .animate-blob-shift {
+    filter: blur(120px);
+    animation: blob-shift 15s infinite ease-in-out;
+  }
+
+  .animation-delay-2000 {
+    animation-delay: 2s;
+  }
+  .animation-delay-4000 {
+    animation-delay: 4s;
+  }
+}

@@ -1,0 +1,39 @@
+/* src/styles/theme.css */
+
+/* Apple-Style Shifting Gradient Background */
+.bg-shifting-mesh {
+  background: linear-gradient(-45deg, #f8fafc, #e0f2fe, #ccfbf1, #fffbeb);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Reusable Brand Component Styles */
+.brand-input-group {
+  @apply relative group;
+}
+
+.brand-input {
+  @apply w-full pl-11 pr-12 py-3.5 bg-white/60 border border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:border-transparent transition-all;
+}
+
+.brand-input:focus {
+  /* Using your logo's Teal color for focus rings */
+  box-shadow: 0 0 0 2px rgba(0, 155, 158, 0.2);
+  border-color: #009B9E;
+}
+
+.brand-btn-primary {
+  /* Using your logo's Deep Blue color */
+  @apply w-full py-4 bg-[#005A8C] text-white text-base font-bold rounded-2xl hover:bg-[#00426b] hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center justify-center;
+}
+
+.brand-link {
+  /* Using your logo's Teal color */
+  @apply font-bold text-[#009B9E] hover:text-[#005A8C] hover:underline transition-all;
+}
