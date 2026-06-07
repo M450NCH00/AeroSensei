@@ -14,39 +14,8 @@ services:
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
       - DOCKER_INFLUXDB_INIT_PASSWORD=password
       - DOCKER_INFLUXDB_INIT_ORG=my-org
-      - DOCKER_INFLUXDB_INIT_BUCKET=my-bucket
+      - DOCKER_INFLUXDB_INIT_BUCKET=sensors_data
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-admin-token-12345
-
-  influx-init:
-    image: alpine:3.19
-    container_name: influx-init
-    depends_on:
-      - influxdb
-    environment:
-      - INFLUX_TOKEN=my-super-secret-admin-token-12345
-      - INFLUX_ORG=my-org
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        apk add --no-cache curl jq > /dev/null
-
-        until curl -fsS http://influxdb:8086/health | grep '"status":"pass"'; do
-          echo "waiting for influx..."
-          sleep 2
-        done
-
-        ORG_ID=$$(curl -s http://influxdb:8086/api/v2/orgs \
-          -H "Authorization: Token $$INFLUX_TOKEN" \
-          | jq -r '.orgs[0].id')
-
-        echo "Org ID: $$ORG_ID"
-
-        curl -s -X POST http://influxdb:8086/api/v2/buckets \
-          -H "Authorization: Token $$INFLUX_TOKEN" \
-          -H "Content-type: application/json" \
-          -d "{\"name\":\"sensors_data\",\"orgID\":\"$$ORG_ID\",\"retentionRules\":[{\"type\":\"expire\",\"everySeconds\":2592000}]}"
-
-        echo "Done."
 
   # --- RELATIONAL DATABASE (Sensor Metadata & Coordinates) ---
   postgres:
