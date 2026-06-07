@@ -47,6 +47,38 @@ services:
     volumes:
       - minio-data:/data
 
+  minio-init:
+    image: minio/minio:latest
+    depends_on:
+      - minio
+    restart: on-failure
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc alias set dockerminio http://minio:9000 minioadmin minioadmin123;
+      /usr/bin/mc mb dockerminio/influx-backups;
+      exit 0;
+      "
+
+  backup-cron:
+    build:
+      context: ./s3
+      dockerfile: Dockerfile
+    container_name: influx-backup-cron
+    restart: unless-stopped
+    depends_on:
+      - influxdb
+      - minio
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INFLUX_BUCKET=sensors_data
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - BUCKET_NAME=influx-backups
+
 volumes:
   influxdb-data:
   influxdb-config:
