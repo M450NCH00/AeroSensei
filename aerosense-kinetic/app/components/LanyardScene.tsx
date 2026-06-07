@@ -61,7 +61,7 @@ function Badge() {
         <group 
           onPointerDown={(e) => {
             e.stopPropagation();
-            e.target.setPointerCapture(e.pointerId);
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
             setIsDragging(true);
             if (badgeRef.current) {
               badgeRef.current.wakeUp();
@@ -69,7 +69,7 @@ function Badge() {
             }
           }}
           onPointerUp={(e) => {
-            e.target.releasePointerCapture(e.pointerId);
+            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
             setIsDragging(false);
             setDragPoint(null);
           }}
