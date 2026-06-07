@@ -12,9 +12,9 @@ services:
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=ChangeThisPassword123!
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password
       - DOCKER_INFLUXDB_INIT_ORG=my-org
-      - DOCKER_INFLUXDB_INIT_BUCKET=my-bucket
+      - DOCKER_INFLUXDB_INIT_BUCKET=sensors_data
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-admin-token-12345
 
   # --- RELATIONAL DATABASE (Sensor Metadata & Coordinates) ---
@@ -32,7 +32,23 @@ services:
       - POSTGRES_PASSWORD=ChangeThisPassword123!
       - POSTGRES_DB=sensor_metadata
 
+  # --- OBJECT STORAGE (MinIO) ---
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+
 volumes:
   influxdb-data:
   influxdb-config:
   postgres-data:
+  minio-data:
