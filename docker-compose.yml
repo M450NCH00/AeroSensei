@@ -32,6 +32,35 @@ services:
       - POSTGRES_PASSWORD=ChangeThisPassword123!
       - POSTGRES_DB=sensor_metadata
 
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aerosense-backend
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - PGHOST=postgres
+      - PGPORT=5432
+      - PGDATABASE=sensor_metadata
+      - PGUSER=admin
+      - PGPASSWORD=ChangeThisPassword123!
+      - PORT=4000
+    depends_on:
+      - postgres
+
+  frontend:
+    build:
+      context: ./aerosense-kinetic
+      dockerfile: Dockerfile
+    container_name: aerosense-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
   # --- OBJECT STORAGE (MinIO) ---
   minio:
     image: minio/minio:latest
