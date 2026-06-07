@@ -10,7 +10,7 @@ if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
 
-const LanyardScene = dynamic(() => import("../components/physics/LanyardScene"), { ssr: false });
+const LanyardScene = dynamic(() => import("./components/LanyardScene"), { ssr: false });
 
 export default function HomePage() {
   const [showBadge, setShowBadge] = useState(false);
