@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { gsap } from "gsap";
@@ -19,7 +20,7 @@ export default function HomePage() {
   const textRefs = useRef<(HTMLDivElement | null)[]>([]);
   
   // Set this to the exact number of frames you extracted
-  const frameCount = 150; 
+  const frameCount = 300; 
   const [images, setImages] = useState<HTMLImageElement[]>([]);
 
   // 1. PRELOAD IMAGES
@@ -167,9 +168,11 @@ export default function HomePage() {
 
         <nav className="fixed top-0 w-full p-8 flex justify-between items-center z-50 backdrop-blur-md border-b border-white/5 bg-black/20">
           <div className="font-black text-2xl tracking-widest">AEROSENSE</div>
-          <button className="px-6 py-2 bg-white/10 border border-white/20 font-medium rounded-full hover:bg-white hover:text-black transition-all duration-300">
-            Launch Dashboard
-          </button>
+          <Link href="/login">
+            <button className="px-6 py-2 bg-white/10 border border-white/20 font-medium rounded-full hover:bg-white hover:text-black transition-all duration-300">
+              Launch Dashboard
+            </button>
+          </Link>
         </nav>
 
         <section className="h-screen flex flex-col items-center justify-center px-8 text-center">
