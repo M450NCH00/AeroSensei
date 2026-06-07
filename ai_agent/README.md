@@ -95,14 +95,7 @@ Leave this terminal running.
 ---
 
 # Setting Up Python Environment
-
-Create virtual environment:
-
-```bash
-python -m venv venv
-```
-
-Activate:
+Activate venv:
 
 ### Windows
 
