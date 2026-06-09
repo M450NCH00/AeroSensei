@@ -7,3 +7,4 @@ CREATE TABLE IF NOT EXISTS sensor_registry (
     installation_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
