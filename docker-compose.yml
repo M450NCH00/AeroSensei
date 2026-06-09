@@ -33,27 +33,20 @@ services:
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
-      - POSTGRES_DB=sensor_metadata
+      - POSTGRES_DB=postgresdb
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      cache_from: []
-    image: aerosense-backend:latest
-    container_name: aerosense-backend
-    restart: unless-stopped
+    build: ./backend # Points to the folder containing your new Dockerfile
+    container_name: aerosensei-backend
     ports:
-      - "4000:4000"
-    environment:
-      - PGHOST=postgres
-      - PGPORT=5432
-      - PGDATABASE=sensor_metadata
-      - PGUSER=admin
-      - PGPASSWORD=ChangeThisPassword123!
-      - PORT=4000
+      - "8080:8080"
     depends_on:
-      - postgres
+      - postgres # Tells Docker to start the database first
+    environment:
+      - DB_URL=jdbc:postgresql://postgresdb:5432/postgresdb
+      - DB_USER=admin
+      - DB_PASSWORD=ChangeThisPassword123!
+      - JWT_SECRET=your-hackathon-super-secret-key-xyz123
 
   frontend:
     build:
