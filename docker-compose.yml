@@ -19,6 +19,7 @@ services:
 
   # --- RELATIONAL DATABASE (Sensor Metadata & Coordinates) ---
   postgres:
+  
     image: postgres:16
     container_name: postgresdb
     restart: unless-stopped
@@ -26,7 +27,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./DatabaseSQL/Query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/sensor_registry_initialization.sql
+      - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/sensor_registry_initialization.sql
+      - ./postgresql/query/role_permissions_initialization.sql:/docker-entrypoint-initdb.d/2_user_roles_initialization.sql
+      - ./postgresql/query/user_registry_initialization.sql:/docker-entrypoint-initdb.d/3_user_registry_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
