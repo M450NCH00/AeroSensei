@@ -1,3 +1,5 @@
+package com.aerosensei.utils;
+
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;

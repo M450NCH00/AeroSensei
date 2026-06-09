@@ -58,18 +58,18 @@ services:
       - DB_PASSWORD=ChangeThisPassword123!
       - JWT_SECRET=your-hackathon-super-secret-key-xyz123
 
-  frontend:
-    build:
-      context: ./aerosense-kinetic
-      dockerfile: Dockerfile
-      cache_from: []
-    image: aerosense-frontend:latest
-    container_name: aerosense-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
+  #frontend:
+  #  build:
+  #    context: ./aerosense-kinetic
+    #   dockerfile: Dockerfile
+    #   cache_from: []
+    # image: aerosense-frontend:latest
+    # container_name: aerosense-frontend
+    # restart: unless-stopped
+    # ports:
+    #   - "3000:3000"
+    # depends_on:
+    #   - backend
 
   # --- OBJECT STORAGE (MinIO) ---
   minio:

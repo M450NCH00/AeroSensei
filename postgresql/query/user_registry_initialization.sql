@@ -9,13 +9,12 @@ CREATE TABLE users
 );
 
 -- Seed initial users: 1 government, 3 companies
-INSERT INTO users
-    (email, password_hash, role, created_at)
-VALUES
-    ('government@example.com', 'hashed_password_placeholder_gov', 'Government', CURRENT_TIMESTAMP),
-    ('company1@example.com', 'hashed_password_placeholder_c1', 'Company', CURRENT_TIMESTAMP),
-    ('company2@example.com', 'hashed_password_placeholder_c2', 'Company', CURRENT_TIMESTAMP),
-    ('company3@example.com', 'hashed_password_placeholder_c3', 'Company', CURRENT_TIMESTAMP)
-RETURNING id, email, role, created_at;
+INSERT INTO users (email, password_hash, role, created_at)
+VALUES 
+('government@example.com', '$2a$10$eoRbY/SI8xhdR/1IJaLKzuz6Ry1zGMYYGF4jR6wkceeJGHij86p72', 'Government', CURRENT_TIMESTAMP),
+('company1@example.com', '$2a$10$eoRbY/SI8xhdR/1IJaLKzuz6Ry1zGMYYGF4jR6wkceeJGHij86p72', 'Company', CURRENT_TIMESTAMP),
+('company2@example.com', '$2a$10$eoRbY/SI8xhdR/1IJaLKzuz6Ry1zGMYYGF4jR6wkceeJGHij86p72', 'Company', CURRENT_TIMESTAMP),
+('company3@example.com', '$2a$10$eoRbY/SI8xhdR/1IJaLKzuz6Ry1zGMYYGF4jR6wkceeJGHij86p72', 'Company', CURRENT_TIMESTAMP)
+ON CONFLICT (email) DO NOTHING;
 
 

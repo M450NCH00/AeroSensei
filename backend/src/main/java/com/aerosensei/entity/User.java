@@ -1,3 +1,5 @@
+package com.aerosensei.entity;
+
 import jakarta.persistence.*;
 
 @Entity
@@ -11,7 +13,7 @@ public class User {
     @Column(nullable = false, unique = true)
     private String email;
 
-    @Column(nullable = false)
+    @Column(name = "password_hash", nullable = false)
     private String password; // This should hold the HASHED password, never plain text
 
     @Column(nullable = false)

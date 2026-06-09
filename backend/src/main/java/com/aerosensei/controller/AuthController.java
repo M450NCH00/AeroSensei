@@ -1,6 +1,20 @@
+package com.aerosensei.controller;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import com.aerosensei.service.AuthService;
+import com.aerosensei.entity.AuthResponse;
+import com.aerosensei.entity.LoginRequest;
+import com.aerosensei.entity.TokenRefreshRequest;
+
 
 @RestController
 @RequestMapping("/api/auth")
@@ -9,12 +23,20 @@ public class AuthController {
     @Autowired
     private AuthService authService;
 
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request) {
+
+
         try {
+            log.info("Received login request for email: " + request.getEmail() + " with password: " + request.getPassword());
+
             AuthResponse response = authService.authenticate(request.getEmail(), request.getPassword());
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.error("Login failed spectacularly for email: {}", request.getEmail(), e);
+
             return ResponseEntity.status(401).body(e.getMessage());
         }
     }
@@ -28,29 +50,4 @@ public class AuthController {
             return ResponseEntity.status(403).body(e.getMessage());
         }
     }
-}
-
-// Data Transfer Objects
-class LoginRequest {
-    private String email;
-    private String password;
-    public String getEmail() { return email; }
-    public String getPassword() { return password; }
-}
-
-class TokenRefreshRequest {
-    private String refreshToken;
-    public String getRefreshToken() { return refreshToken; }
-}
-
-class AuthResponse {
-    private String accessToken;
-    private String refreshToken;
-
-    public AuthResponse(String accessToken, String refreshToken) {
-        this.accessToken = accessToken;
-        this.refreshToken = refreshToken;
-    }
-    public String getAccessToken() { return accessToken; }
-    public String getRefreshToken() { return refreshToken; }
 }
