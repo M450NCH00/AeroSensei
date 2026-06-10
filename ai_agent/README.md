@@ -1,17 +1,15 @@
-# AI Agent Backend 
+# AI Agent Backend
 
 Current architecture:
 
 ```text
 User
   ↓
-Frontend 
+Frontend
   ↓ HTTP Request
 Flask AI Agent (This Project)
   ↓
-Database 
-  ↓
-Ollama LLM
+Ollama LLM (qwen3:0.6b)
   ↓
 Response
   ↓
@@ -71,11 +69,13 @@ ollama --version
 ```bash
 ollama pull qwen3:0.6b
 ```
+
 or
 
 ```bash
 ollama pull qwen3:1.7b
 ```
+
 # Starting Ollama
 
 Start Ollama server:
@@ -95,25 +95,21 @@ Leave this terminal running.
 ---
 
 # Setting Up Python Environment
-Activate venv:
 
-### Windows
-
-```bash
-venv\Scripts\activate
-```
-
-### Linux/macOS
+Install dependencies:
 
 ```bash
-source venv/bin/activate
+pip install flask ollama
 ```
+
+---
 
 # Testing Ollama Connection
 
 ```bash
 python test.py
 ```
+
 # Running the Flask Server
 
 Start:
@@ -125,14 +121,15 @@ python app.py
 Expected output:
 
 ```text
-Running on http://0.0.0.0:5000
+Running on http://0.0.0.0:5001
 ```
 
 Server endpoint:
 
 ```text
-http://<IP_ADDRESS>:5000
+http://<IP_ADDRESS>:5001
 ```
+
 ---
 
 # API Specification
@@ -168,7 +165,7 @@ Response:
 CALL:
 
 ```javascript
-fetch("http://<AI_AGENT_IP>:5000/ask", {
+fetch("http://<AI_AGENT_IP>:5001/ask", {
     method: "POST",
     headers: {
         "Content-Type": "application/json"
@@ -183,4 +180,10 @@ fetch("http://<AI_AGENT_IP>:5000/ask", {
 
 ---
 
-# Database Integration Notes
+# Testing with curl
+
+```bash
+curl -X POST http://localhost:5001/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is AI?"}'
+```

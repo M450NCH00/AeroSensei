@@ -14,20 +14,18 @@ def ask():
         model='qwen3:0.6b',
         messages=[
             {
-                'role':'user',
+                'role': 'user',
                 'content': user_question
             }
         ]
     )
 
-    answer = response['message']['content']
-
     return jsonify({
-        "answer": answer
+        "answer": response['message']['content']
     })
 
 if __name__ == '__main__':
     app.run(
         host='0.0.0.0',
-        port=5000
+        port=5001
     )
