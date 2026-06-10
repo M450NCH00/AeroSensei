@@ -26,7 +26,7 @@ public class SecurityConfig {
             // Configure URL routing rules
             .authorizeHttpRequests(auth -> auth
                 // Allow anyone to hit your login and refresh endpoints
-                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/auth/**", "/actuator/health").permitAll()
                 // Any other endpoint you build later will require authentication
                 .anyRequest().authenticated()
             );
