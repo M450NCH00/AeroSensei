@@ -1,5 +1,8 @@
-CREATE TABLE IF NOT EXISTS sensor_registry (
+CREATE TABLE
+IF NOT EXISTS sensor_registry
+(
     sensor_id VARCHAR(50) PRIMARY KEY,
+    company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
     location_name VARCHAR(100) NOT NULL,
     latitude NUMERIC(11, 8) NOT NULL,
     longitude NUMERIC(11, 8) NOT NULL,
@@ -7,3 +10,4 @@ CREATE TABLE IF NOT EXISTS sensor_registry (
     installation_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
