@@ -3,6 +3,9 @@ package com.aerosensei.controller;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpCookie;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +21,7 @@ import com.aerosensei.entity.TokenRefreshRequest;
 
 @RestController
 @RequestMapping("/api/auth")
+@CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true") // Help me change this to use env instead of hardcoded path
 public class AuthController {
 
     @Autowired
@@ -33,7 +37,20 @@ public class AuthController {
             log.info("Received login request for email: " + request.getEmail() + " with password: " + request.getPassword());
 
             AuthResponse response = authService.authenticate(request.getEmail(), request.getPassword());
-            return ResponseEntity.ok(response);
+
+            ResponseCookie accessCookie = ResponseCookie.from("accessToken", response.getAccessToken())
+                    .httpOnly(true).secure(true).path("/").maxAge(900).sameSite("Strict").build();
+
+            // 2. Long-lived Refresh Token Cookie (e.g., 7 days)
+            ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", response.getRefreshToken())
+                    .httpOnly(true).secure(true).path("/api/auth/refresh").maxAge(604800).sameSite("Strict").build();
+            // Pro-tip: Setting the path to "/api/auth/refresh" means the browser *only* // sends this heavy cookie when the frontend specifically asks for a refresh!
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, accessCookie.toString())
+                    .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+                    .body("Authentication successful");
+
         } catch (Exception e) {
             log.error("Login failed spectacularly for email: {}", request.getEmail(), e);
 
@@ -42,10 +59,27 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<?> refresh(@RequestBody TokenRefreshRequest request) {
+    public ResponseEntity<?> refresh(@CookieValue(name = "refreshToken", defaultValue = "") String refreshToken) {
         try {
-            AuthResponse response = authService.refreshToken(request.getRefreshToken());
-            return ResponseEntity.ok(response);
+            if (refreshToken.isEmpty()) {
+                throw new RuntimeException("Refresh token missing");
+            }
+
+            // Use the existing service logic your friend already wrote!
+            AuthResponse response = authService.refreshToken(refreshToken);
+
+            // Issue a shiny new access token cookie
+            ResponseCookie newAccessCookie = ResponseCookie.from("accessToken", response.getAccessToken())
+                    .httpOnly(true).secure(true).path("/").maxAge(900).sameSite("Strict").build();
+
+            // Optional: If your service rotates the refresh token, set the new refresh cookie here too
+            ResponseCookie newRefreshCookie = ResponseCookie.from("refreshToken", response.getRefreshToken())
+                    .httpOnly(true).secure(true).path("/api/auth/refresh").maxAge(604800).sameSite("Strict").build();
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, newAccessCookie.toString())
+                    .header(HttpHeaders.SET_COOKIE, newRefreshCookie.toString())
+                    .body("Tokens refreshed smoothly");
         } catch (Exception e) {
             return ResponseEntity.status(403).body(e.getMessage());
         }
