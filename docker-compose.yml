@@ -9,6 +9,7 @@ services:
     volumes:
       - influxdb-data:/var/lib/influxdb2
       - influxdb-config:/etc/influxdb2
+      - ./influxdb:/docker-entrypoint-initdb.d:ro
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
@@ -27,9 +28,12 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/sensor_registry_initialization.sql
-      - ./postgresql/query/role_permissions_initialization.sql:/docker-entrypoint-initdb.d/2_user_roles_initialization.sql
-      - ./postgresql/query/user_registry_initialization.sql:/docker-entrypoint-initdb.d/3_user_registry_initialization.sql
+      - ./postgresql/query/role_permissions_initialization.sql:/docker-entrypoint-initdb.d/user_roles_initialization.sql
+      - ./postgresql/query/user_registry_initialization.sql:/docker-entrypoint-initdb.d/2_user_registry_initialization.sql
+      - ./postgresql/query/company_registry_initialization.sql:/docker-entrypoint-initdb.d/3_company_registry_initialization.sql
+      - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/4_sensor_registry_initialization.sql
+      - ./postgresql/query/alert_registry_initialization.sql:/docker-entrypoint-initdb.d/5_alert_registry_initialization.sql
+      - ./postgresql/query/transaction_registry_initialization.sql:/docker-entrypoint-initdb.d/6_transaction_registry_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
