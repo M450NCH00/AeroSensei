@@ -32,7 +32,8 @@ services:
       - ./postgresql/query/company_registry_initialization.sql:/docker-entrypoint-initdb.d/3_company_registry_initialization.sql
       - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/4_sensor_registry_initialization.sql
       - ./postgresql/query/alert_registry_initialization.sql:/docker-entrypoint-initdb.d/5_alert_registry_initialization.sql
-      - ./postgresql/query/transaction_registry_initialization.sql:/docker-entrypoint-initdb.d/6_transaction_registry_initialization.sql
+      - ./postgresql/query/carbon_transactions_initialization.sql:/docker-entrypoint-initdb.d/6_carbon_transactions_initialization.sql
+      - ./postgresql/query/carbon_listings_initialization.sql:/docker-entrypoint-initdb.d/7_carbon_listings_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
