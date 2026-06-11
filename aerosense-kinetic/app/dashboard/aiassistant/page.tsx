@@ -28,8 +28,7 @@ export default function AIAssistantPage() {
     return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const handleProcessUserQuery = (text: string) => {
-    // 1. Instantly append user comment to layout flow
+  const handleProcessUserQuery = async (text: string) => {
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: "user",
@@ -37,21 +36,37 @@ export default function AIAssistantPage() {
       timestamp: getCurrentTime(),
     };
     setMessages((prev) => [...prev, userMessage]);
-    
-    // 2. Trigger automated loading shell state
     setIsTyping(true);
 
-    // 3. Mock telemetry delay pipeline (Replace with openAI stream actions later!)
-    setTimeout(() => {
-      const mockBotResponse: Message = {
+    try {
+      const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+      const res = await fetch(`${aiAgentUrl}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: text }),
+      });
+
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
+      const data = await res.json();
+      const botMessage: Message = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `I have processed your query regarding: "${text}".\n\nBased on current system parameters, telemetry tracking shows nominal operation levels across 23 out of 24 monitoring nodes in Vietnam. I will help you connect real-time OpenAI analysis functions here once the background data infrastructure pipeline is completely integrated.`,
+        content: data.answer,
         timestamp: getCurrentTime(),
       };
-      setMessages((prev) => [...prev, mockBotResponse]);
+      setMessages((prev) => [...prev, botMessage]);
+    } catch {
+      const errorMessage: Message = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: "Sorry, I could not reach the AI agent. Please check that the service is running.",
+        timestamp: getCurrentTime(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   return (
