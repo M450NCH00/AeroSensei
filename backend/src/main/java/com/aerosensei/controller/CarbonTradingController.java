@@ -4,13 +4,17 @@ import com.aerosensei.dto.BalanceResponse;
 import com.aerosensei.dto.CarbonListingResponse;
 import com.aerosensei.dto.CarbonTransactionResponse;
 import com.aerosensei.dto.CreateListingRequest;
+import com.aerosensei.dto.OhlcCandle;
+import com.aerosensei.dto.PriceHistoryPoint;
 import com.aerosensei.service.CarbonTradingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/carbon")
@@ -84,5 +88,22 @@ public class CarbonTradingController {
     @GetMapping("/transactions")
     public ResponseEntity<List<CarbonTransactionResponse>> getMyTransactions(@AuthenticationPrincipal String email) {
         return ResponseEntity.ok(carbonTradingService.getMyTransactions(email));
+    }
+
+    @GetMapping("/market-price")
+    public ResponseEntity<Map<String, BigDecimal>> getMarketPrice() {
+        return carbonTradingService.getLatestMarketPrice()
+                .map(price -> ResponseEntity.ok(Map.of("pricePerCredit", price)))
+                .orElse(ResponseEntity.ok(null));
+    }
+
+    @GetMapping("/price-history")
+    public ResponseEntity<List<PriceHistoryPoint>> getPriceHistory() {
+        return ResponseEntity.ok(carbonTradingService.getPriceHistory());
+    }
+
+    @GetMapping("/ohlc")
+    public ResponseEntity<List<OhlcCandle>> getOhlc(@RequestParam(defaultValue = "1M") String range) {
+        return ResponseEntity.ok(carbonTradingService.getOhlcData(range));
     }
 }

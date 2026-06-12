@@ -3,6 +3,8 @@ package com.aerosensei.service;
 import com.aerosensei.dto.BalanceResponse;
 import com.aerosensei.dto.CarbonListingResponse;
 import com.aerosensei.dto.CarbonTransactionResponse;
+import com.aerosensei.dto.OhlcCandle;
+import com.aerosensei.dto.PriceHistoryPoint;
 import com.aerosensei.entity.CarbonListing;
 import com.aerosensei.entity.CarbonTransaction;
 import com.aerosensei.entity.Company;
@@ -16,7 +18,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.DayOfWeek;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -179,6 +189,68 @@ public class CarbonTradingService {
         Company company = resolveCompany(email);
         return transactionRepo.findByFromCompanyOrToCompanyOrderByCreatedAtDesc(company, company)
                 .stream().map(this::toTransactionResponse).collect(Collectors.toList());
+    }
+
+    public Optional<BigDecimal> getLatestMarketPrice() {
+        return transactionRepo.findTopByOrderByCreatedAtDesc()
+                .map(tx -> tx.getPrice().divide(tx.getAmount(), 2, RoundingMode.HALF_UP));
+    }
+
+    public List<OhlcCandle> getOhlcData(String range) {
+        LocalDateTime startDate = switch (range) {
+            case "1D"  -> LocalDateTime.now().minusDays(1);
+            case "5D"  -> LocalDateTime.now().minusDays(5);
+            case "1Y"  -> LocalDateTime.now().minusYears(1);
+            case "3Y"  -> LocalDateTime.now().minusYears(3);
+            default    -> LocalDateTime.now().minusMonths(1); // "1M" and fallback
+        };
+
+        List<CarbonTransaction> txs = transactionRepo.findByCreatedAtAfterOrderByCreatedAtAsc(startDate);
+
+        Map<LocalDateTime, List<CarbonTransaction>> buckets = txs.stream()
+                .collect(Collectors.groupingBy(
+                        tx -> bucketStart(tx.getCreatedAt(), range),
+                        TreeMap::new,
+                        Collectors.toList()
+                ));
+
+        return buckets.entrySet().stream().map(entry -> {
+            List<BigDecimal> prices = entry.getValue().stream()
+                    .map(tx -> tx.getPrice().divide(tx.getAmount(), 2, RoundingMode.HALF_UP))
+                    .collect(Collectors.toList());
+            BigDecimal volume = entry.getValue().stream()
+                    .map(CarbonTransaction::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            return new OhlcCandle(
+                    prices.get(0),
+                    prices.stream().max(BigDecimal::compareTo).get(),
+                    prices.stream().min(BigDecimal::compareTo).get(),
+                    prices.get(prices.size() - 1),
+                    volume,
+                    entry.getKey()
+            );
+        }).collect(Collectors.toList());
+    }
+
+    private LocalDateTime bucketStart(LocalDateTime dt, String range) {
+        return switch (range) {
+            case "1D" -> dt.truncatedTo(ChronoUnit.HOURS);
+            case "5D" -> dt.truncatedTo(ChronoUnit.DAYS).plusHours((dt.getHour() / 4) * 4L);
+            case "1Y" -> dt.truncatedTo(ChronoUnit.DAYS).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            case "3Y" -> dt.withDayOfMonth(1).truncatedTo(ChronoUnit.DAYS);
+            default   -> dt.truncatedTo(ChronoUnit.DAYS); // "1M"
+        };
+    }
+
+    public List<PriceHistoryPoint> getPriceHistory() {
+        return transactionRepo.findAllByOrderByCreatedAtAsc()
+                .stream()
+                .map(tx -> new PriceHistoryPoint(
+                        tx.getPrice().divide(tx.getAmount(), 2, RoundingMode.HALF_UP),
+                        tx.getAmount(),
+                        tx.getCreatedAt()
+                ))
+                .collect(Collectors.toList());
     }
 
     private User resolveUser(String email) {

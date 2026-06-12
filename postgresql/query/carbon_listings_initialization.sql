@@ -20,8 +20,9 @@ VALUES
     (2, 300.00,  300.00,  13.25, 'active');
 
 -- Buy requests (seller_company_id null, buyer_company_id set)
+-- Prices are intentionally below all sell listings (min sell: 11.00) so no auto-match occurs
 INSERT INTO carbon_listings (buyer_company_id, credits_amount, remaining_credits, price_per_credit, status)
 VALUES
-    (1, 400.00,  400.00,  13.00, 'active'),
-    (3, 800.00,  800.00,  12.00, 'active'),
-    (1, 250.00,  250.00,  14.00, 'active');
+    (1, 400.00,  400.00,   9.50, 'active'),
+    (3, 800.00,  800.00,  10.00, 'active'),
+    (1, 250.00,  250.00,   8.75, 'active');

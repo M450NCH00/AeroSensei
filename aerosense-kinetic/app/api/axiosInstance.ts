@@ -3,7 +3,7 @@ import axios from "axios";
 
 const axiosInstance = axios.create({
   // FIXED: Changed from REACT_APP_ to NEXT_PUBLIC_ so Next.js can read it
-  baseURL: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081"}/api`,
+  baseURL: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api`,
   withCredentials: true, // Crucial for passing HttpOnly cookies automatically
   headers: {
     "Content-Type": "application/json",
