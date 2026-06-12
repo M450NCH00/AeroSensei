@@ -20,7 +20,6 @@ services:
 
   # --- RELATIONAL DATABASE (Sensor Metadata & Coordinates) ---
   postgres:
-  
     image: postgres:16
     container_name: postgresdb
     restart: unless-stopped
@@ -33,7 +32,8 @@ services:
       - ./postgresql/query/company_registry_initialization.sql:/docker-entrypoint-initdb.d/3_company_registry_initialization.sql
       - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/4_sensor_registry_initialization.sql
       - ./postgresql/query/alert_registry_initialization.sql:/docker-entrypoint-initdb.d/5_alert_registry_initialization.sql
-      - ./postgresql/query/transaction_registry_initialization.sql:/docker-entrypoint-initdb.d/6_transaction_registry_initialization.sql
+      - ./postgresql/query/carbon_transactions_initialization.sql:/docker-entrypoint-initdb.d/6_carbon_transactions_initialization.sql
+      - ./postgresql/query/carbon_listings_initialization.sql:/docker-entrypoint-initdb.d/7_carbon_listings_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
@@ -71,18 +71,35 @@ services:
       - DB_PASSWORD=ChangeThisPassword123!
       - JWT_SECRET=your-hackathon-super-secret-key-xyz123
 
-  #frontend:
-  #  build:
-  #    context: ./aerosense-kinetic
-    #   dockerfile: Dockerfile
-    #   cache_from: []
-    # image: aerosense-frontend:latest
-    # container_name: aerosense-frontend
-    # restart: unless-stopped
-    # ports:
-    #   - "3000:3000"
-    # depends_on:
-    #   - backend
+  # --- AI AGENT ---
+  ai-agent:
+    build:
+      context: ./ai_agent
+      dockerfile: Dockerfile
+    container_name: ai-agent
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./aerosense-kinetic
+      dockerfile: Dockerfile
+    image: aerosense-frontend:latest
+    container_name: aerosense-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+      - ai-agent
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8081
+      - NEXT_PUBLIC_AI_AGENT_URL=http://localhost:5001
 
   # --- OBJECT STORAGE (MinIO) ---
   minio:

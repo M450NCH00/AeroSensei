@@ -1,13 +1,16 @@
-# Use a lightweight Java 21 runtime environment
-FROM eclipse-temurin:26-jre-jammy
-
+FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
 
-# Copy the compiled JAR file from your local target folder into the container
-COPY target/*.jar app.jar
+COPY pom.xml ./
+RUN mvn dependency:go-offline -q
 
-# Expose the port your Spring Boot app runs on
+COPY src ./src
+RUN mvn package -DskipTests -q
+
+FROM eclipse-temurin:26-jre-jammy
+WORKDIR /app
+
+COPY --from=builder /app/target/*.jar app.jar
+
 EXPOSE 8080
-
-# Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]

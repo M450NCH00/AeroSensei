@@ -1,6 +1,8 @@
 package com.aerosensei.entity;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "companies")
@@ -8,19 +10,31 @@ public class Company {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    private Long id;
 
-    // Assuming your companies table has a name column, add it here!
-    @Column(name = "company_name")
-    private String companyName;
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
 
-    // Default Constructor
-    public Company() {}
+    @Column(name = "carbon_credits", nullable = false)
+    private BigDecimal carbonCredits;
 
-    // Getters and Setters
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
 
-    public String getCompanyName() { return companyName; }
-    public void setCompanyName(String companyName) { this.companyName = companyName; }
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
+
+    public BigDecimal getCarbonCredits() { return carbonCredits; }
+    public void setCarbonCredits(BigDecimal carbonCredits) { this.carbonCredits = carbonCredits; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

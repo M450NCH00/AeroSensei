@@ -1,9 +1,9 @@
 package com.aerosensei.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 
@@ -16,34 +16,34 @@ import org.springframework.web.bind.annotation.*;
 import com.aerosensei.service.AuthService;
 import com.aerosensei.entity.AuthResponse;
 import com.aerosensei.entity.LoginRequest;
-import com.aerosensei.entity.TokenRefreshRequest;
 
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true") // Help me change this to use env instead of hardcoded path
+@CrossOrigin(origins = "${app.cors.allowed-origin:http://localhost:3000}", allowCredentials = "true")
 public class AuthController {
 
     @Autowired
     private AuthService authService;
+
+    @Value("${app.secure-cookies:false}")
+    private boolean secureCookies;
 
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request) {
 
-
         try {
-            log.info("Received login request for email: " + request.getEmail() + " with password: " + request.getPassword());
+            log.info("Received login request for email: {}", request.getEmail());
 
             AuthResponse response = authService.authenticate(request.getEmail(), request.getPassword());
 
             ResponseCookie accessCookie = ResponseCookie.from("accessToken", response.getAccessToken())
-                    .httpOnly(true).secure(true).path("/").maxAge(900).sameSite("Strict").build();
+                    .httpOnly(true).secure(secureCookies).path("/").maxAge(900).sameSite("Strict").build();
 
-            // 2. Long-lived Refresh Token Cookie (e.g., 7 days)
             ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", response.getRefreshToken())
-                    .httpOnly(true).secure(true).path("/api/auth/refresh").maxAge(604800).sameSite("Strict").build();
+                    .httpOnly(true).secure(secureCookies).path("/api/auth/refresh").maxAge(604800).sameSite("Strict").build();
             // Pro-tip: Setting the path to "/api/auth/refresh" means the browser *only* // sends this heavy cookie when the frontend specifically asks for a refresh!
 
             return ResponseEntity.ok()
@@ -68,13 +68,11 @@ public class AuthController {
             // Use the existing service logic your friend already wrote!
             AuthResponse response = authService.refreshToken(refreshToken);
 
-            // Issue a shiny new access token cookie
             ResponseCookie newAccessCookie = ResponseCookie.from("accessToken", response.getAccessToken())
-                    .httpOnly(true).secure(true).path("/").maxAge(900).sameSite("Strict").build();
+                    .httpOnly(true).secure(secureCookies).path("/").maxAge(900).sameSite("Strict").build();
 
-            // Optional: If your service rotates the refresh token, set the new refresh cookie here too
             ResponseCookie newRefreshCookie = ResponseCookie.from("refreshToken", response.getRefreshToken())
-                    .httpOnly(true).secure(true).path("/api/auth/refresh").maxAge(604800).sameSite("Strict").build();
+                    .httpOnly(true).secure(secureCookies).path("/api/auth/refresh").maxAge(604800).sameSite("Strict").build();
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, newAccessCookie.toString())

@@ -4,7 +4,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Map, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Bot, Map, Leaf, Settings, LogOut } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname(); // This magic hook grabs the current URL path!
@@ -13,6 +13,7 @@ export default function Sidebar() {
     { name: "Overview Map", href: "/dashboard", icon: LayoutDashboard },
     { name: "AI Assistant", href: "/dashboard/aiassistant", icon: Bot },
     { name: "Sensor Sites", href: "/dashboard/sites", icon: Map },
+    { name: "Carbon Market", href: "/dashboard/carbon", icon: Leaf },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
 
