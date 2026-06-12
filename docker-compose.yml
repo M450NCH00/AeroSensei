@@ -49,18 +49,27 @@ services:
       - PGADMIN_DEFAULT_EMAIL=admin@admin.com
       - PGADMIN_DEFAULT_PASSWORD=admin
 
-  #backend:
-  #  build: ./backend # Points to the folder containing your new Dockerfile
-  #  container_name: aerosensei-backend
-  #  ports:
-  #    - "8080:8080"
-  #  depends_on:
-  #    - postgres # Tells Docker to start the database first
-  #  environment:
-  #    - DB_URL=jdbc:postgresql://postgresdb:5432/postgresdb
-  #    - DB_USER=admin
-  #    - DB_PASSWORD=ChangeThisPassword123!
-  #    - JWT_SECRET=your-hackathon-super-secret-key-xyz123
+  redis:
+    image: redis:7-alpine
+    container_name: aerosensei-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  backend:
+    build: ./backend # Points to the folder containing your new Dockerfile
+    container_name: aerosensei-backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres # Tells Docker to start the database first
+      - influxdb
+      - redis
+    environment:
+      - DB_URL=jdbc:postgresql://postgresdb:5432/postgresdb
+      - DB_USER=admin
+      - DB_PASSWORD=ChangeThisPassword123!
+      - JWT_SECRET=your-hackathon-super-secret-key-xyz123
 
   #frontend:
   #  build:
