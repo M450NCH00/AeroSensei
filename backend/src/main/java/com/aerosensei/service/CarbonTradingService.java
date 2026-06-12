@@ -32,17 +32,12 @@ import java.util.stream.Collectors;
 @Service
 public class CarbonTradingService {
 
-    @Autowired
-    private CarbonListingRepository listingRepo;
+    @Autowired private CarbonListingRepository listingRepo;
+    @Autowired private CarbonTransactionRepository transactionRepo;
+    @Autowired private CompanyRepository companyRepo;
+    @Autowired private UserRepository userRepo;
 
-    @Autowired
-    private CarbonTransactionRepository transactionRepo;
-
-    @Autowired
-    private CompanyRepository companyRepo;
-
-    @Autowired
-    private UserRepository userRepo;
+    // ── Queries (unchanged) ───────────────────────────────────────────────────
 
     public List<CarbonListingResponse> getActiveListings() {
         return listingRepo.findActiveSellListings()
@@ -50,12 +45,49 @@ public class CarbonTradingService {
     }
 
     public List<CarbonListingResponse> getMyListings(String email) {
-        Company company = resolveCompany(email);
-        return listingRepo.findMySellListings(company)
+        return listingRepo.findMySellListings(resolveCompany(email))
                 .stream().map(this::toListingResponse).collect(Collectors.toList());
     }
 
-    public CarbonListingResponse createListing(String email, BigDecimal creditsAmount, BigDecimal pricePerCredit) {
+    public List<CarbonListingResponse> getActiveBuyRequests() {
+        return listingRepo.findActiveBuyRequests()
+                .stream().map(this::toListingResponse).collect(Collectors.toList());
+    }
+
+    public List<CarbonListingResponse> getMyBuyRequests(String email) {
+        return listingRepo.findMyBuyRequests(resolveCompany(email))
+                .stream().map(this::toListingResponse).collect(Collectors.toList());
+    }
+
+    public BalanceResponse getBalance(String email) {
+        Company company = resolveCompany(email);
+        return new BalanceResponse(company.getId(), company.getCarbonCredits());
+    }
+
+    public List<CarbonTransactionResponse> getMyTransactions(String email) {
+        Company company = resolveCompany(email);
+        return transactionRepo.findByFromCompanyOrToCompanyOrderByCreatedAtDesc(company, company)
+                .stream().map(this::toTransactionResponse).collect(Collectors.toList());
+    }
+
+    public Optional<CarbonListing> getListingById(Long id) {
+        return listingRepo.findById(id);
+    }
+
+    public Optional<BigDecimal> getLatestMarketPrice() {
+        return transactionRepo.findTopByOrderByCreatedAtDesc()
+                .map(tx -> tx.getPrice().divide(tx.getAmount(), 2, RoundingMode.HALF_UP));
+    }
+
+    // ── Async order creation (Kafka path) ─────────────────────────────────────
+
+    /**
+     * Persists a sell listing with status "pending_matching" and returns it.
+     * The caller (controller) publishes the Kafka event after this returns.
+     */
+    @Transactional
+    public CarbonListing createListingPending(String email, BigDecimal creditsAmount,
+                                              BigDecimal pricePerCredit, String kafkaRequestId) {
         Company company = resolveCompany(email);
 
         if (company.getCarbonCredits().compareTo(creditsAmount) < 0) {
@@ -67,9 +99,31 @@ public class CarbonTradingService {
         listing.setCreditsAmount(creditsAmount);
         listing.setRemainingCredits(creditsAmount);
         listing.setPricePerCredit(pricePerCredit);
-
-        return toListingResponse(listingRepo.save(listing));
+        listing.setStatus("pending_matching");
+        listing.setKafkaRequestId(kafkaRequestId);
+        return listingRepo.save(listing);
     }
+
+    /**
+     * Persists a buy request with status "pending_matching" and returns it.
+     * The caller (controller) publishes the Kafka event after this returns.
+     */
+    @Transactional
+    public CarbonListing createBuyRequestPending(String email, BigDecimal creditsAmount,
+                                                  BigDecimal maxPricePerCredit, String kafkaRequestId) {
+        Company company = resolveCompany(email);
+
+        CarbonListing buyRequest = new CarbonListing();
+        buyRequest.setBuyerCompany(company);
+        buyRequest.setCreditsAmount(creditsAmount);
+        buyRequest.setRemainingCredits(creditsAmount);
+        buyRequest.setPricePerCredit(maxPricePerCredit);
+        buyRequest.setStatus("pending_matching");
+        buyRequest.setKafkaRequestId(kafkaRequestId);
+        return listingRepo.save(buyRequest);
+    }
+
+    // ── Direct buy (synchronous, unchanged) ───────────────────────────────────
 
     @Transactional
     public CarbonTransactionResponse buyListing(String buyerEmail, Long listingId) {
@@ -93,7 +147,7 @@ public class CarbonTradingService {
         }
 
         BigDecimal tradedAmount = listing.getRemainingCredits();
-        BigDecimal totalPrice = tradedAmount.multiply(listing.getPricePerCredit());
+        BigDecimal totalPrice   = tradedAmount.multiply(listing.getPricePerCredit());
 
         sellerCompany.setCarbonCredits(sellerCompany.getCarbonCredits().subtract(tradedAmount));
         buyerCompany.setCarbonCredits(buyerCompany.getCarbonCredits().add(tradedAmount));
@@ -116,96 +170,19 @@ public class CarbonTradingService {
         return toTransactionResponse(tx);
     }
 
-    @Transactional
-    public CarbonListingResponse createBuyRequest(String email, BigDecimal creditsAmount, BigDecimal maxPricePerCredit) {
-        User buyer = resolveUser(email);
-        Company buyerCompany = companyRepo.findByUser(buyer)
-                .orElseThrow(() -> new RuntimeException("Company not found"));
-
-        List<CarbonListing> matches = listingRepo.findMatchingListings(maxPricePerCredit, buyerCompany);
-
-        BigDecimal remaining = creditsAmount;
-
-        for (CarbonListing listing : matches) {
-            if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
-
-            BigDecimal tradedAmount = listing.getRemainingCredits().min(remaining);
-            BigDecimal totalCost = tradedAmount.multiply(listing.getPricePerCredit());
-
-            Company sellerCompany = listing.getSellerCompany();
-            sellerCompany.setCarbonCredits(sellerCompany.getCarbonCredits().subtract(tradedAmount));
-            buyerCompany.setCarbonCredits(buyerCompany.getCarbonCredits().add(tradedAmount));
-            companyRepo.save(sellerCompany);
-
-            listing.setRemainingCredits(listing.getRemainingCredits().subtract(tradedAmount));
-            if (listing.getRemainingCredits().compareTo(BigDecimal.ZERO) == 0) {
-                listing.setStatus("sold");
-                listing.setBuyerCompany(buyerCompany);
-            }
-            listingRepo.save(listing);
-
-            CarbonTransaction tx = new CarbonTransaction();
-            tx.setFromCompany(sellerCompany);
-            tx.setToCompany(buyerCompany);
-            tx.setAmount(tradedAmount);
-            tx.setPrice(totalCost);
-            tx.setInitiatedBy(buyer);
-            transactionRepo.save(tx);
-
-            remaining = remaining.subtract(tradedAmount);
-        }
-
-        companyRepo.save(buyerCompany);
-
-        // Store the buy request in carbon_listings with sellerCompany = null
-        CarbonListing buyRequest = new CarbonListing();
-        buyRequest.setBuyerCompany(buyerCompany);
-        buyRequest.setCreditsAmount(creditsAmount);
-        buyRequest.setRemainingCredits(remaining);
-        buyRequest.setPricePerCredit(maxPricePerCredit);
-        buyRequest.setStatus(remaining.compareTo(BigDecimal.ZERO) == 0 ? "sold" : "active");
-        listingRepo.save(buyRequest);
-
-        return toListingResponse(buyRequest);
-    }
-
-    public List<CarbonListingResponse> getActiveBuyRequests() {
-        return listingRepo.findActiveBuyRequests()
-                .stream().map(this::toListingResponse).collect(Collectors.toList());
-    }
-
-    public List<CarbonListingResponse> getMyBuyRequests(String email) {
-        Company company = resolveCompany(email);
-        return listingRepo.findMyBuyRequests(company)
-                .stream().map(this::toListingResponse).collect(Collectors.toList());
-    }
-
-    public BalanceResponse getBalance(String email) {
-        Company company = resolveCompany(email);
-        return new BalanceResponse(company.getId(), company.getCarbonCredits());
-    }
-
-    public List<CarbonTransactionResponse> getMyTransactions(String email) {
-        Company company = resolveCompany(email);
-        return transactionRepo.findByFromCompanyOrToCompanyOrderByCreatedAtDesc(company, company)
-                .stream().map(this::toTransactionResponse).collect(Collectors.toList());
-    }
-
-    public Optional<BigDecimal> getLatestMarketPrice() {
-        return transactionRepo.findTopByOrderByCreatedAtDesc()
-                .map(tx -> tx.getPrice().divide(tx.getAmount(), 2, RoundingMode.HALF_UP));
-    }
+    // ── OHLC / price history ──────────────────────────────────────────────────
 
     public List<OhlcCandle> getOhlcData(String range) {
         LocalDateTime startDate = switch (range) {
-            case "1D"  -> LocalDateTime.now().minusDays(1);
-            case "5D"  -> LocalDateTime.now().minusDays(5);
-            case "1Y"  -> LocalDateTime.now().minusYears(1);
-            case "3Y"  -> LocalDateTime.now().minusYears(3);
-            default    -> LocalDateTime.now().minusMonths(1); // "1M" and fallback
+            case "1D" -> LocalDateTime.now().minusDays(1);
+            case "5D" -> LocalDateTime.now().minusDays(5);
+            case "1Y" -> LocalDateTime.now().minusYears(1);
+            case "3Y" -> LocalDateTime.now().minusYears(3);
+            default   -> LocalDateTime.now().minusMonths(1);
         };
 
-        List<CarbonTransaction> txs = transactionRepo.findByCreatedAtAfterOrderByCreatedAtAsc(startDate);
+        List<CarbonTransaction> txs =
+                transactionRepo.findByCreatedAtAfterOrderByCreatedAtAsc(startDate);
 
         Map<LocalDateTime, List<CarbonTransaction>> buckets = txs.stream()
                 .collect(Collectors.groupingBy(
@@ -236,15 +213,15 @@ public class CarbonTradingService {
         return switch (range) {
             case "1D" -> dt.truncatedTo(ChronoUnit.HOURS);
             case "5D" -> dt.truncatedTo(ChronoUnit.DAYS).plusHours((dt.getHour() / 4) * 4L);
-            case "1Y" -> dt.truncatedTo(ChronoUnit.DAYS).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            case "1Y" -> dt.truncatedTo(ChronoUnit.DAYS)
+                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             case "3Y" -> dt.withDayOfMonth(1).truncatedTo(ChronoUnit.DAYS);
-            default   -> dt.truncatedTo(ChronoUnit.DAYS); // "1M"
+            default   -> dt.truncatedTo(ChronoUnit.DAYS);
         };
     }
 
     public List<PriceHistoryPoint> getPriceHistory() {
-        return transactionRepo.findAllByOrderByCreatedAtAsc()
-                .stream()
+        return transactionRepo.findAllByOrderByCreatedAtAsc().stream()
                 .map(tx -> new PriceHistoryPoint(
                         tx.getPrice().divide(tx.getAmount(), 2, RoundingMode.HALF_UP),
                         tx.getAmount(),
@@ -253,25 +230,26 @@ public class CarbonTradingService {
                 .collect(Collectors.toList());
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private User resolveUser(String email) {
-        return userRepo.findByEmail(email).orElseThrow(() -> new RuntimeException("User not found"));
+        return userRepo.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
     }
 
     private Company resolveCompany(String email) {
-        User user = resolveUser(email);
-        return companyRepo.findByUser(user).orElseThrow(() -> new RuntimeException("Company not found"));
+        return companyRepo.findByUser(resolveUser(email))
+                .orElseThrow(() -> new RuntimeException("Company not found"));
     }
 
-    private CarbonListingResponse toListingResponse(CarbonListing listing) {
+    public CarbonListingResponse toListingResponse(CarbonListing listing) {
         boolean isBuy = listing.getSellerCompany() == null;
-        String type = isBuy ? "buy" : "sell";
         String sellerEmail = isBuy ? null : listing.getSellerCompany().getUser().getEmail();
-        String buyerEmail = listing.getBuyerCompany() != null
-                ? listing.getBuyerCompany().getUser().getEmail()
-                : null;
+        String buyerEmail  = listing.getBuyerCompany() != null
+                ? listing.getBuyerCompany().getUser().getEmail() : null;
         return new CarbonListingResponse(
                 listing.getId(),
-                type,
+                isBuy ? "buy" : "sell",
                 sellerEmail,
                 buyerEmail,
                 listing.getCreditsAmount(),
