@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Leaf, TrendingUp, ArrowLeftRight, Plus, X, ShoppingCart, Clock, Filter } from "lucide-react";
+import { Leaf, TrendingUp, TrendingDown, ArrowLeftRight, Plus, X, ShoppingCart, Clock, Filter } from "lucide-react";
 import axiosInstance from "../../api/axiosInstance";
 
 interface Listing {
@@ -31,6 +31,15 @@ interface Balance {
   carbonCredits: number;
 }
 
+interface OhlcCandle {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  timestamp: string;
+}
+
 type MarketFilter = "all" | "sell" | "buy";
 
 export default function CarbonMarketPage() {
@@ -40,6 +49,9 @@ export default function CarbonMarketPage() {
   const [myBuyRequests, setMyBuyRequests] = useState<Listing[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [balance, setBalance] = useState<Balance | null>(null);
+  const [ohlcData, setOhlcData] = useState<OhlcCandle[]>([]);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [range, setRange] = useState("1M");
   const [activeTab, setActiveTab] = useState<"market" | "activity">("market");
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("all");
   const [showSellModal, setShowSellModal] = useState(false);
@@ -53,7 +65,7 @@ export default function CarbonMarketPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [listingsRes, myListingsRes, buyRequestsRes, myBuyRequestsRes, txRes, balanceRes] =
+      const [listingsRes, myListingsRes, buyRequestsRes, myBuyRequestsRes, txRes, balanceRes, ohlcRes] =
         await Promise.all([
           axiosInstance.get("/carbon/listings"),
           axiosInstance.get("/carbon/my-listings"),
@@ -61,6 +73,7 @@ export default function CarbonMarketPage() {
           axiosInstance.get("/carbon/my-buy-requests"),
           axiosInstance.get("/carbon/transactions"),
           axiosInstance.get("/carbon/balance"),
+          axiosInstance.get(`/carbon/ohlc?range=${range}`),
         ]);
       setListings(listingsRes.data);
       setMyListings(myListingsRes.data);
@@ -68,10 +81,11 @@ export default function CarbonMarketPage() {
       setMyBuyRequests(myBuyRequestsRes.data);
       setTransactions(txRes.data);
       setBalance(balanceRes.data);
+      setOhlcData(ohlcRes.data ?? []);
     } catch {
       setError("Failed to load market data.");
     }
-  }, []);
+  }, [range]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -131,6 +145,46 @@ export default function CarbonMarketPage() {
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
+  // Chart derived values
+  const currentPrice = ohlcData.length > 0 ? ohlcData[ohlcData.length - 1].close : null;
+  const firstOpen = ohlcData.length > 0 ? ohlcData[0].open : null;
+  const priceChange = currentPrice != null && firstOpen != null ? +(currentPrice - firstOpen).toFixed(2) : null;
+  const priceChangePct = priceChange != null && firstOpen ? +((priceChange / firstOpen) * 100).toFixed(2) : null;
+  const totalTradeVolume = ohlcData.reduce((sum: number, c: OhlcCandle) => sum + c.volume, 0);
+  const allHighs = ohlcData.map((c: OhlcCandle) => c.high);
+  const allLows  = ohlcData.map((c: OhlcCandle) => c.low);
+  const highAll  = allHighs.length > 0 ? Math.max(...allHighs) : null;
+  const lowAll   = allLows.length  > 0 ? Math.min(...allLows)  : null;
+
+  const CW = 800, CH = 220;
+  const PAD_L = 10, PAD_R = 64, PAD_T = 20, PAD_B = 34;
+  const BORDER_PAD = 24; // left/right space inside the plot area
+  const chartW = CW - PAD_L - PAD_R;
+  const chartH = CH - PAD_T - PAD_B;
+  const innerW = chartW - 2 * BORDER_PAD;
+  const rawMin = allLows.length  > 0 ? Math.min(...allLows)  : 0;
+  const rawMax = allHighs.length > 0 ? Math.max(...allHighs) : 1;
+  const yPad = (rawMax - rawMin) * 0.15 || 0.5;
+  const yMin = rawMin - yPad;
+  const yMax = rawMax + yPad;
+  const n = ohlcData.length;
+  const cx = (i: number) => PAD_L + BORDER_PAD + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const cy = (price: number) => PAD_T + ((yMax - price) / (yMax - yMin)) * chartH;
+  const spacing = n > 1 ? innerW / (n - 1) : innerW;
+  const candleW = Math.max(2, Math.min(20, spacing * 0.75));
+  const gridPrices = Array.from({ length: 5 }, (_: unknown, i: number) =>
+    parseFloat((yMin + (i / 4) * (yMax - yMin)).toFixed(2))
+  );
+  const labelEvery = Math.max(1, Math.ceil(n / 7));
+
+  const formatChartDate = (iso: string) => {
+    const d = new Date(iso);
+    if (range === "1D") return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    if (range === "5D") return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    if (range === "3Y") return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  };
+
   const showSellCards = marketFilter === "all" || marketFilter === "sell";
   const showBuyCards = marketFilter === "all" || marketFilter === "buy";
   const hasMarketItems =
@@ -175,6 +229,237 @@ export default function CarbonMarketPage() {
           <button onClick={() => setError(null)} className="cursor-pointer"><X size={16} /></button>
         </div>
       )}
+
+      {/* Market Price Chart Hero */}
+      <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
+
+        {/* Header */}
+        <div className="px-7 pt-6 pb-3 flex items-start justify-between flex-wrap gap-4">
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+              <TrendingUp size={10} className="text-[#009B9E]" />
+              Carbon Credit · Market Price
+            </p>
+            <div className="flex items-end gap-4 mt-2">
+              <p className="text-5xl font-black text-gray-900 tracking-tight tabular-nums">
+                {hoveredIndex != null
+                  ? `$${ohlcData[hoveredIndex].close.toFixed(2)}`
+                  : currentPrice != null
+                  ? `$${currentPrice.toFixed(2)}`
+                  : "—"}
+              </p>
+              {priceChange != null && priceChangePct != null && hoveredIndex == null && (
+                <div className={`flex items-center gap-1.5 mb-2 text-sm font-bold ${priceChange >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                  {priceChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  <span>{priceChange >= 0 ? "+" : ""}{priceChange.toFixed(2)}</span>
+                  <span className="text-xs font-semibold opacity-75">
+                    ({priceChange >= 0 ? "+" : ""}{priceChangePct.toFixed(2)}%)
+                  </span>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 font-semibold mt-1">
+              {hoveredIndex != null
+                ? formatChartDate(ohlcData[hoveredIndex].timestamp)
+                : "per tCO₂e · carbon credit"}
+            </p>
+          </div>
+          <div className="flex gap-8 text-right">
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">High</p>
+              <p className="text-base font-black text-emerald-500 mt-0.5">
+                {highAll != null ? `$${highAll.toFixed(2)}` : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Low</p>
+              <p className="text-base font-black text-red-500 mt-0.5">
+                {lowAll != null ? `$${lowAll.toFixed(2)}` : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Volume</p>
+              <p className="text-base font-black text-gray-700 mt-0.5">{totalTradeVolume.toLocaleString()}</p>
+              <p className="text-[10px] text-gray-400 font-semibold">tCO₂e</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Trades</p>
+              <p className="text-base font-black text-gray-700 mt-0.5">{ohlcData.length}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Range selector + OHLC hover bar */}
+        <div className="px-7 pb-2 flex items-center justify-between">
+          <div className="flex gap-1">
+            {(["1D", "5D", "1M", "1Y", "3Y"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => { setRange(r); setHoveredIndex(null); }}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  range === r
+                    ? "bg-[#005A8C] text-white"
+                    : "text-gray-400 hover:text-[#005A8C] hover:bg-gray-50"
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          {hoveredIndex != null && (() => {
+            const c = ohlcData[hoveredIndex];
+            const isGreen = c.close >= c.open;
+            return (
+              <div className="flex gap-3 text-xs font-mono text-gray-500">
+                <span>O <span className="text-gray-800 font-bold">${c.open.toFixed(2)}</span></span>
+                <span>H <span className="text-emerald-500 font-bold">${c.high.toFixed(2)}</span></span>
+                <span>L <span className="text-red-500 font-bold">${c.low.toFixed(2)}</span></span>
+                <span>C <span className={`font-bold ${isGreen ? "text-emerald-500" : "text-red-500"}`}>${c.close.toFixed(2)}</span></span>
+                <span>Vol <span className="text-gray-700 font-bold">{c.volume.toLocaleString()}</span></span>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Candlestick chart */}
+        {ohlcData.length === 0 ? (
+          <div className="h-44 flex items-center justify-center border-t border-gray-50">
+            <p className="text-sm font-bold text-gray-300">No trade history for this range</p>
+          </div>
+        ) : (
+          <div
+            className="relative"
+            onMouseLeave={() => setHoveredIndex(null)}
+          >
+            <svg
+              viewBox={`0 0 ${CW} ${CH}`}
+              className="w-full block"
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const svgX = ((e.clientX - rect.left) / rect.width) * CW;
+                let nearest = 0, minDist = Infinity;
+                ohlcData.forEach((_: OhlcCandle, i: number) => {
+                  const d = Math.abs(cx(i) - svgX);
+                  if (d < minDist) { minDist = d; nearest = i; }
+                });
+                setHoveredIndex(nearest);
+              }}
+            >
+              {/* Grid lines + Y-axis labels */}
+              {gridPrices.map((price: number, i: number) => (
+                <g key={i}>
+                  <line x1={PAD_L} y1={cy(price)} x2={PAD_L + chartW} y2={cy(price)} stroke="#f3f4f6" strokeWidth="1" />
+                  <text x={PAD_L + chartW + 6} y={cy(price) + 4} fontSize="10" fill="#9ca3af" fontWeight="600" fontFamily="system-ui">
+                    ${price.toFixed(2)}
+                  </text>
+                </g>
+              ))}
+
+              {/* Current price line */}
+              {currentPrice != null && (
+                <>
+                  <line
+                    x1={PAD_L} y1={cy(currentPrice)} x2={PAD_L + chartW} y2={cy(currentPrice)}
+                    stroke="#005A8C" strokeWidth="1" strokeDasharray="4 3" opacity="0.35"
+                  />
+                  <rect x={PAD_L + chartW + 2} y={cy(currentPrice) - 9} width={58} height={18} rx="4" fill="#005A8C" />
+                  <text x={PAD_L + chartW + 31} y={cy(currentPrice) + 4} textAnchor="middle" fontSize="10" fill="white" fontWeight="700" fontFamily="system-ui">
+                    ${currentPrice.toFixed(2)}
+                  </text>
+                </>
+              )}
+
+              {/* Hover band — candlestick modes only */}
+              {hoveredIndex != null && range !== "1D" && (
+                <rect
+                  x={cx(hoveredIndex) - candleW / 2 - 4} y={PAD_T}
+                  width={candleW + 8} height={chartH}
+                  fill="#005A8C" opacity="0.06" rx="3"
+                />
+              )}
+
+              {/* Chart body: line chart for 1D, candlesticks for all other ranges */}
+              {range === "1D" ? (
+                <>
+                  <defs>
+                    <linearGradient id="lineAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#009B9E" stopOpacity="0.18" />
+                      <stop offset="100%" stopColor="#009B9E" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  {/* Area fill */}
+                  <path
+                    d={[
+                      `M ${cx(0)} ${cy(ohlcData[0].close)}`,
+                      ...ohlcData.slice(1).map((c: OhlcCandle, i: number) => `L ${cx(i + 1)} ${cy(c.close)}`),
+                      `L ${cx(n - 1)} ${PAD_T + chartH}`,
+                      `L ${cx(0)} ${PAD_T + chartH}`,
+                      "Z",
+                    ].join(" ")}
+                    fill="url(#lineAreaGrad)"
+                  />
+                  {/* Line */}
+                  <path
+                    d={ohlcData.map((c: OhlcCandle, i: number) => `${i === 0 ? "M" : "L"} ${cx(i)} ${cy(c.close)}`).join(" ")}
+                    fill="none"
+                    stroke="#009B9E"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                  {/* Dots at each price point */}
+                  {ohlcData.map((c: OhlcCandle, i: number) => (
+                    <circle
+                      key={i}
+                      cx={cx(i)}
+                      cy={cy(c.close)}
+                      r={hoveredIndex === i ? 5 : 3}
+                      fill={hoveredIndex === i ? "#005A8C" : "#009B9E"}
+                      stroke="white"
+                      strokeWidth="1.5"
+                      opacity={hoveredIndex != null && hoveredIndex !== i ? 0.45 : 1}
+                    />
+                  ))}
+                </>
+              ) : (
+                ohlcData.map((c: OhlcCandle, i: number) => {
+                  const isGreen = c.close >= c.open;
+                  const color = isGreen ? "#22c55e" : "#ef4444";
+                  const bodyTop = cy(Math.max(c.open, c.close));
+                  const bodyBot = cy(Math.min(c.open, c.close));
+                  const bodyH = Math.max(1.5, bodyBot - bodyTop);
+                  const x = cx(i);
+                  return (
+                    <g key={i} opacity={hoveredIndex != null && hoveredIndex !== i ? 0.45 : 1}>
+                      <line x1={x} y1={cy(c.high)} x2={x} y2={cy(c.low)} stroke={color} strokeWidth="1.5" />
+                      <rect x={x - candleW / 2} y={bodyTop} width={candleW} height={bodyH} fill={color} rx="1.5" />
+                    </g>
+                  );
+                })
+              )}
+
+              {/* Hover crosshair */}
+              {hoveredIndex != null && (
+                <line
+                  x1={cx(hoveredIndex)} y1={PAD_T}
+                  x2={cx(hoveredIndex)} y2={PAD_T + chartH}
+                  stroke="#6b7280" strokeWidth="1" strokeDasharray="4 3" opacity="0.3"
+                />
+              )}
+
+              {/* X-axis labels */}
+              {ohlcData.map((c: OhlcCandle, i: number) => {
+                if (i % labelEvery !== 0 && i !== n - 1) return null;
+                return (
+                  <text key={i} x={cx(i)} y={CH - 8} textAnchor="middle" fontSize="10" fill="#9ca3af" fontWeight="600" fontFamily="system-ui">
+                    {formatChartDate(c.timestamp)}
+                  </text>
+                );
+              })}
+            </svg>
+          </div>
+        )}
+      </div>
 
       {/* Stats Strip */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">

@@ -98,7 +98,7 @@ services:
       - backend
       - ai-agent
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8081
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
       - NEXT_PUBLIC_AI_AGENT_URL=http://localhost:5001
 
   # --- OBJECT STORAGE (MinIO) ---
