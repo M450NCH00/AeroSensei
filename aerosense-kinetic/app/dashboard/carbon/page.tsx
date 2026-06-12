@@ -64,27 +64,29 @@ export default function CarbonMarketPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
-    try {
-      const [listingsRes, myListingsRes, buyRequestsRes, myBuyRequestsRes, txRes, balanceRes, ohlcRes] =
-        await Promise.all([
-          axiosInstance.get("/carbon/listings"),
-          axiosInstance.get("/carbon/my-listings"),
-          axiosInstance.get("/carbon/buy-requests"),
-          axiosInstance.get("/carbon/my-buy-requests"),
-          axiosInstance.get("/carbon/transactions"),
-          axiosInstance.get("/carbon/balance"),
-          axiosInstance.get(`/carbon/ohlc?range=${range}`),
-        ]);
-      setListings(listingsRes.data);
-      setMyListings(myListingsRes.data);
-      setBuyRequests(buyRequestsRes.data);
-      setMyBuyRequests(myBuyRequestsRes.data);
-      setTransactions(txRes.data);
-      setBalance(balanceRes.data);
-      setOhlcData(ohlcRes.data ?? []);
-    } catch {
-      setError("Failed to load market data.");
-    }
+    const [listingsRes, myListingsRes, buyRequestsRes, myBuyRequestsRes, txRes, balanceRes, ohlcRes] =
+      await Promise.allSettled([
+        axiosInstance.get("/carbon/listings"),
+        axiosInstance.get("/carbon/my-listings"),
+        axiosInstance.get("/carbon/buy-requests"),
+        axiosInstance.get("/carbon/my-buy-requests"),
+        axiosInstance.get("/carbon/transactions"),
+        axiosInstance.get("/carbon/balance"),
+        axiosInstance.get(`/carbon/ohlc?range=${range}`),
+      ]);
+
+    const failures: string[] = [];
+    if (listingsRes.status === "fulfilled") setListings(listingsRes.value.data);
+    else failures.push("listings");
+    if (myListingsRes.status === "fulfilled") setMyListings(myListingsRes.value.data);
+    if (buyRequestsRes.status === "fulfilled") setBuyRequests(buyRequestsRes.value.data);
+    else failures.push("buy requests");
+    if (myBuyRequestsRes.status === "fulfilled") setMyBuyRequests(myBuyRequestsRes.value.data);
+    if (txRes.status === "fulfilled") setTransactions(txRes.value.data);
+    if (balanceRes.status === "fulfilled") setBalance(balanceRes.value.data);
+    if (ohlcRes.status === "fulfilled") setOhlcData(ohlcRes.value.data ?? []);
+
+    if (failures.length > 0) setError(`Failed to load market data.`);
   }, [range]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);

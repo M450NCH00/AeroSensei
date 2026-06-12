@@ -33,6 +33,6 @@ VALUES
     -- Cluster 4: Far North Area (Hanoi / Hai Phong)
     ('esp32_012', 3, 'Hanoi Storage Alpha', 21.028500, 105.854200, 'active', '2026-03-05'),
     ('esp32_013', 1, 'Hai Phong Testing Lab', 20.844900, 106.688100, 'active', '2026-03-08'),
-    ('esp32_014', 2, 'Ha Long Shipyard Mon', 20.950000, 107.083300, 'offline', '2026-03-10');
+    ('esp32_014', 2, 'Ha Long Shipyard Mon', 20.950000, 107.083300, 'offline', '2026-03-10')
 ON CONFLICT (sensor_id) DO NOTHING;
 

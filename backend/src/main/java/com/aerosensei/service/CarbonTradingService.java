@@ -37,33 +37,39 @@ public class CarbonTradingService {
     @Autowired private CompanyRepository companyRepo;
     @Autowired private UserRepository userRepo;
 
-    // ── Queries (unchanged) ───────────────────────────────────────────────────
+    // ── Queries ───────────────────────────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public List<CarbonListingResponse> getActiveListings() {
         return listingRepo.findActiveSellListings()
                 .stream().map(this::toListingResponse).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<CarbonListingResponse> getMyListings(String email) {
         return listingRepo.findMySellListings(resolveCompany(email))
                 .stream().map(this::toListingResponse).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<CarbonListingResponse> getActiveBuyRequests() {
         return listingRepo.findActiveBuyRequests()
                 .stream().map(this::toListingResponse).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<CarbonListingResponse> getMyBuyRequests(String email) {
         return listingRepo.findMyBuyRequests(resolveCompany(email))
                 .stream().map(this::toListingResponse).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public BalanceResponse getBalance(String email) {
         Company company = resolveCompany(email);
         return new BalanceResponse(company.getId(), company.getCarbonCredits());
     }
 
+    @Transactional(readOnly = true)
     public List<CarbonTransactionResponse> getMyTransactions(String email) {
         Company company = resolveCompany(email);
         return transactionRepo.findByFromCompanyOrToCompanyOrderByCreatedAtDesc(company, company)
