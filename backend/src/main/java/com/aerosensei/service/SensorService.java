@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -80,6 +81,19 @@ public class SensorService {
         List<SensorRegistry> sensors = registryRepository.findAll();
 
         // Convert the raw Entities into clean DTOs
+        return sensors.stream().map(sensor -> new SensorInfoDTO(
+                sensor.getSensorId(),
+                sensor.getLocationName(),
+                sensor.getLatitude(),
+                sensor.getLongitude(),
+                sensor.getStatus()
+        )).collect(Collectors.toList());
+    }
+
+    //Get by area boundaries
+    public List<SensorInfoDTO> getSensorsWithinArea(BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon) {
+        List<SensorRegistry> sensors = registryRepository.findSensorsWithinBounds(minLat, maxLat, minLon, maxLon);
+
         return sensors.stream().map(sensor -> new SensorInfoDTO(
                 sensor.getSensorId(),
                 sensor.getLocationName(),
