@@ -5,26 +5,27 @@ import java.time.LocalDateTime;
 
 public class CarbonTransactionResponse {
     private Long id;
-    private String fromEmail;
-    private String toEmail;
+    private String orderType; // "buy" or "sell"
     private BigDecimal amount;
+    private BigDecimal pricePerCredit;
     private BigDecimal totalPrice;
     private LocalDateTime createdAt;
 
-    public CarbonTransactionResponse(Long id, String fromEmail, String toEmail,
-                                      BigDecimal amount, BigDecimal totalPrice, LocalDateTime createdAt) {
+    public CarbonTransactionResponse(Long id, String orderType, BigDecimal amount,
+                                      BigDecimal pricePerCredit, BigDecimal totalPrice,
+                                      LocalDateTime createdAt) {
         this.id = id;
-        this.fromEmail = fromEmail;
-        this.toEmail = toEmail;
+        this.orderType = orderType;
         this.amount = amount;
+        this.pricePerCredit = pricePerCredit;
         this.totalPrice = totalPrice;
         this.createdAt = createdAt;
     }
 
     public Long getId() { return id; }
-    public String getFromEmail() { return fromEmail; }
-    public String getToEmail() { return toEmail; }
+    public String getOrderType() { return orderType; }
     public BigDecimal getAmount() { return amount; }
+    public BigDecimal getPricePerCredit() { return pricePerCredit; }
     public BigDecimal getTotalPrice() { return totalPrice; }
     public LocalDateTime getCreatedAt() { return createdAt; }
 }

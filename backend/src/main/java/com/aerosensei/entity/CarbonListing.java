@@ -32,6 +32,10 @@ public class CarbonListing {
     @Column(nullable = false)
     private String status;
 
+    /** UUID of the Kafka message that triggered matching — used for idempotency. */
+    @Column(name = "kafka_request_id")
+    private String kafkaRequestId;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -51,27 +55,30 @@ public class CarbonListing {
         updatedAt = LocalDateTime.now();
     }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public Long getId()                        { return id; }
+    public void setId(Long id)                 { this.id = id; }
 
-    public Company getSellerCompany() { return sellerCompany; }
-    public void setSellerCompany(Company sellerCompany) { this.sellerCompany = sellerCompany; }
+    public Company getSellerCompany()          { return sellerCompany; }
+    public void setSellerCompany(Company c)    { this.sellerCompany = c; }
 
-    public Company getBuyerCompany() { return buyerCompany; }
-    public void setBuyerCompany(Company buyerCompany) { this.buyerCompany = buyerCompany; }
+    public Company getBuyerCompany()           { return buyerCompany; }
+    public void setBuyerCompany(Company c)     { this.buyerCompany = c; }
 
-    public BigDecimal getCreditsAmount() { return creditsAmount; }
-    public void setCreditsAmount(BigDecimal creditsAmount) { this.creditsAmount = creditsAmount; }
+    public BigDecimal getCreditsAmount()              { return creditsAmount; }
+    public void setCreditsAmount(BigDecimal v)        { this.creditsAmount = v; }
 
-    public BigDecimal getRemainingCredits() { return remainingCredits; }
-    public void setRemainingCredits(BigDecimal remainingCredits) { this.remainingCredits = remainingCredits; }
+    public BigDecimal getRemainingCredits()           { return remainingCredits; }
+    public void setRemainingCredits(BigDecimal v)     { this.remainingCredits = v; }
 
-    public BigDecimal getPricePerCredit() { return pricePerCredit; }
-    public void setPricePerCredit(BigDecimal pricePerCredit) { this.pricePerCredit = pricePerCredit; }
+    public BigDecimal getPricePerCredit()             { return pricePerCredit; }
+    public void setPricePerCredit(BigDecimal v)       { this.pricePerCredit = v; }
 
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
+    public String getStatus()                  { return status; }
+    public void setStatus(String status)       { this.status = status; }
 
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public String getKafkaRequestId()          { return kafkaRequestId; }
+    public void setKafkaRequestId(String v)    { this.kafkaRequestId = v; }
+
+    public LocalDateTime getCreatedAt()        { return createdAt; }
+    public LocalDateTime getUpdatedAt()        { return updatedAt; }
 }
