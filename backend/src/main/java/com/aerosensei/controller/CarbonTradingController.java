@@ -5,6 +5,7 @@ import com.aerosensei.dto.CarbonListingResponse;
 import com.aerosensei.dto.CarbonTransactionResponse;
 import com.aerosensei.dto.CreateListingRequest;
 import com.aerosensei.dto.OhlcCandle;
+import com.aerosensei.dto.OrderBookEntry;
 import com.aerosensei.dto.OrderMatchingRequest;
 import com.aerosensei.dto.PriceHistoryPoint;
 import com.aerosensei.entity.CarbonListing;
@@ -31,7 +32,7 @@ public class CarbonTradingController {
     // ── Sell listings ─────────────────────────────────────────────────────────
 
     @GetMapping("/listings")
-    public ResponseEntity<List<CarbonListingResponse>> getActiveListings() {
+    public ResponseEntity<List<OrderBookEntry>> getActiveListings() {
         return ResponseEntity.ok(carbonTradingService.getActiveListings());
     }
 
@@ -70,12 +71,12 @@ public class CarbonTradingController {
         }
     }
 
-    /** Direct buy of a specific active listing — remains synchronous. */
-    @PostMapping("/listings/{id}/buy")
-    public ResponseEntity<?> buyListing(@AuthenticationPrincipal String email,
-                                         @PathVariable Long id) {
+    @DeleteMapping("/listings/{id}")
+    public ResponseEntity<?> cancelListing(@AuthenticationPrincipal String email,
+                                            @PathVariable Long id) {
         try {
-            return ResponseEntity.ok(carbonTradingService.buyListing(email, id));
+            carbonTradingService.cancelListing(id, email);
+            return ResponseEntity.ok().build();
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -99,7 +100,7 @@ public class CarbonTradingController {
     // ── Buy requests ──────────────────────────────────────────────────────────
 
     @GetMapping("/buy-requests")
-    public ResponseEntity<List<CarbonListingResponse>> getActiveBuyRequests() {
+    public ResponseEntity<List<OrderBookEntry>> getActiveBuyRequests() {
         return ResponseEntity.ok(carbonTradingService.getActiveBuyRequests());
     }
 

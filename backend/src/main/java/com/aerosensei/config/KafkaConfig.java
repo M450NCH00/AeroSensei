@@ -1,6 +1,9 @@
 package com.aerosensei.config;
 
 import com.aerosensei.dto.OrderMatchingRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -33,6 +36,13 @@ public class KafkaConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
+
+    private ObjectMapper kafkaObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        return mapper;
+    }
 
     // ── Topics ────────────────────────────────────────────────────────────────
 
@@ -72,13 +82,14 @@ public class KafkaConfig {
     public ProducerFactory<String, Object> producerFactory() {
         Map<String, Object> config = new HashMap<>();
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
         config.put(ProducerConfig.ACKS_CONFIG, "all");
         config.put(ProducerConfig.RETRIES_CONFIG, 3);
         config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
-        config.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, false);
-        return new DefaultKafkaProducerFactory<>(config);
+
+        JsonSerializer<Object> valueSerializer = new JsonSerializer<>(kafkaObjectMapper());
+        valueSerializer.setAddTypeInfo(false);
+
+        return new DefaultKafkaProducerFactory<>(config, new StringSerializer(), valueSerializer);
     }
 
     @Bean
@@ -97,11 +108,11 @@ public class KafkaConfig {
         config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         config.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
 
+        ObjectMapper mapper = kafkaObjectMapper();
         JsonDeserializer<OrderMatchingRequest> deserializer =
-                new JsonDeserializer<>(OrderMatchingRequest.class, false);
+                new JsonDeserializer<>(mapper.constructType(OrderMatchingRequest.class), mapper, false);
 
-        return new DefaultKafkaConsumerFactory<>(config,
-                new StringDeserializer(), deserializer);
+        return new DefaultKafkaConsumerFactory<>(config, new StringDeserializer(), deserializer);
     }
 
     @Bean

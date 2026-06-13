@@ -1,8 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Leaf, TrendingUp, TrendingDown, ArrowLeftRight, Plus, X, ShoppingCart, Clock, Filter } from "lucide-react";
+import { Leaf, TrendingUp, TrendingDown, ArrowLeftRight, Plus, X, ShoppingCart, Clock } from "lucide-react";
 import axiosInstance from "../../api/axiosInstance";
+
+interface OrderBookEntry {
+  type: "sell" | "buy";
+  pricePerCredit: number;
+  totalCredits: number;
+}
 
 interface Listing {
   id: number;
@@ -19,9 +25,9 @@ interface Listing {
 
 interface Transaction {
   id: number;
-  fromEmail: string;
-  toEmail: string;
+  orderType: "buy" | "sell";
   amount: number;
+  pricePerCredit: number;
   totalPrice: number;
   createdAt: string;
 }
@@ -40,12 +46,10 @@ interface OhlcCandle {
   timestamp: string;
 }
 
-type MarketFilter = "all" | "sell" | "buy";
-
 export default function CarbonMarketPage() {
-  const [listings, setListings] = useState<Listing[]>([]);
+  const [listings, setListings] = useState<OrderBookEntry[]>([]);
   const [myListings, setMyListings] = useState<Listing[]>([]);
-  const [buyRequests, setBuyRequests] = useState<Listing[]>([]);
+  const [buyRequests, setBuyRequests] = useState<OrderBookEntry[]>([]);
   const [myBuyRequests, setMyBuyRequests] = useState<Listing[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [balance, setBalance] = useState<Balance | null>(null);
@@ -53,13 +57,12 @@ export default function CarbonMarketPage() {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [range, setRange] = useState("1M");
   const [activeTab, setActiveTab] = useState<"market" | "activity">("market");
-  const [marketFilter, setMarketFilter] = useState<MarketFilter>("all");
   const [showSellModal, setShowSellModal] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [sellAmount, setSellAmount] = useState("");
   const [sellPrice, setSellPrice] = useState("");
   const [buyAmount, setBuyAmount] = useState("");
-  const [buyMaxPrice, setBuyMaxPrice] = useState("");
+  const [buyBidPrice, setBuyBidPrice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,17 +92,11 @@ export default function CarbonMarketPage() {
     if (failures.length > 0) setError(`Failed to load market data.`);
   }, [range]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  const handleBuy = async (listingId: number) => {
-    setError(null);
-    try {
-      await axiosInstance.post(`/carbon/listings/${listingId}/buy`);
-      await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data || "Purchase failed.");
-    }
-  };
+  useEffect(() => {
+    fetchAll();
+    const interval = setInterval(fetchAll, 10000);
+    return () => clearInterval(interval);
+  }, [fetchAll]);
 
   const handleCreateListing = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,11 +125,11 @@ export default function CarbonMarketPage() {
     try {
       await axiosInstance.post("/carbon/buy-requests", {
         creditsAmount: parseFloat(buyAmount),
-        pricePerCredit: parseFloat(buyMaxPrice),
+        pricePerCredit: parseFloat(buyBidPrice),
       });
       setShowBuyModal(false);
       setBuyAmount("");
-      setBuyMaxPrice("");
+      setBuyBidPrice("");
       await fetchAll();
     } catch (err: any) {
       setError(err.response?.data || "Failed to place buy request.");
@@ -141,8 +138,17 @@ export default function CarbonMarketPage() {
     }
   };
 
-  const totalSellVolume = listings.reduce((sum, l) => sum + l.remainingCredits, 0);
-  const totalBuyVolume = buyRequests.reduce((sum, r) => sum + r.remainingCredits, 0);
+  const handleCancel = async (id: number) => {
+    try {
+      await axiosInstance.delete(`/carbon/listings/${id}`);
+      await fetchAll();
+    } catch (err: any) {
+      setError(err.response?.data || "Failed to cancel.");
+    }
+  };
+
+  const totalSellVolume = listings.reduce((sum, l) => sum + l.totalCredits, 0);
+  const totalBuyVolume = buyRequests.reduce((sum, r) => sum + r.totalCredits, 0);
 
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -186,11 +192,6 @@ export default function CarbonMarketPage() {
     if (range === "3Y") return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
     return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   };
-
-  const showSellCards = marketFilter === "all" || marketFilter === "sell";
-  const showBuyCards = marketFilter === "all" || marketFilter === "buy";
-  const hasMarketItems =
-    (showSellCards && listings.length > 0) || (showBuyCards && buyRequests.length > 0);
 
   return (
     <div className="p-8 min-h-screen bg-[#F8FAFC] flex flex-col gap-6 select-none">
@@ -506,158 +507,88 @@ export default function CarbonMarketPage() {
         ))}
       </div>
 
-      {/* Marketplace Tab */}
+      {/* Marketplace Tab — order book layout */}
       {activeTab === "market" && (
-        <div className="flex flex-col gap-4">
-          {/* Filter Bar */}
-          <div className="flex items-center gap-2">
-            <Filter size={14} className="text-gray-400" />
-            <div className="flex gap-1.5">
-              {(["all", "sell", "buy"] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setMarketFilter(f)}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    marketFilter === f
-                      ? f === "sell"
-                        ? "bg-[#009B9E] text-white"
-                        : f === "buy"
-                        ? "bg-[#F28C28] text-white"
-                        : "bg-[#005A8C] text-white"
-                      : "bg-white border border-gray-200 text-gray-500 hover:border-gray-300"
-                  }`}
-                >
-                  {f === "all"
-                    ? "All Orders"
-                    : f === "sell"
-                    ? `Sell Orders (${listings.length})`
-                    : `Buy Requests (${buyRequests.length})`}
-                </button>
-              ))}
+        <div className="grid grid-cols-2 gap-4">
+
+          {/* Left: Buy Orders — descending price */}
+          <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-black text-base text-[#F28C28] flex items-center gap-2">
+                <ShoppingCart size={16} />
+                Buy Orders
+              </h2>
+              <span className="text-xs font-bold text-gray-400">{buyRequests.length} open</span>
             </div>
+            <div className="px-5 py-2 grid grid-cols-2 border-b border-gray-50">
+              <span className="text-[10px] font-bold text-[#F28C28] uppercase tracking-wider">Amount (tCO₂e)</span>
+              <span className="text-[10px] font-bold text-[#F28C28] uppercase tracking-wider text-right">Bid Price</span>
+            </div>
+            {buyRequests.length === 0 ? (
+              <div className="p-10 text-center">
+                <p className="text-sm font-bold text-gray-300">No buy orders</p>
+                <p className="text-xs text-gray-300 mt-1">Place a buy request to get started</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-50">
+                {[...buyRequests]
+                  .sort((a, b) => b.pricePerCredit - a.pricePerCredit)
+                  .map((req) => (
+                    <div
+                      key={`buy-${req.pricePerCredit}`}
+                      className="px-5 py-3 grid grid-cols-2 items-center hover:bg-amber-50/40 transition-colors"
+                    >
+                      <span className="text-sm font-black text-[#F28C28]">
+                        {req.totalCredits.toLocaleString()}
+                      </span>
+                      <span className="text-sm font-black text-gray-800 text-right">
+                        ${req.pricePerCredit.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
 
-          {!hasMarketItems ? (
-            <div className="bg-white border border-gray-200/60 rounded-[2rem] p-16 text-center shadow-sm">
-              <Leaf size={36} className="text-gray-200 mx-auto mb-3" />
-              <p className="font-black text-gray-400">No orders found</p>
-              <p className="text-xs text-gray-400 mt-1">
-                Use the buttons above to create a sell listing or buy request
-              </p>
+          {/* Right: Sell Orders — ascending price */}
+          <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-black text-base text-[#009B9E] flex items-center gap-2">
+                <Leaf size={16} />
+                Sell Orders
+              </h2>
+              <span className="text-xs font-bold text-gray-400">{listings.length} active</span>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {/* Sell listing cards */}
-              {showSellCards && listings.map((listing) => (
-                <div
-                  key={`sell-${listing.id}`}
-                  className="bg-white border border-gray-200/60 rounded-2xl p-5 shadow-sm hover:border-[#009B9E]/40 hover:shadow-md transition-all flex flex-col gap-4"
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Seller</p>
-                      <p className="text-sm font-black text-gray-800 mt-0.5 truncate max-w-[180px]">
-                        {listing.sellerEmail}
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
-                      SELL
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 border-t border-gray-50 pt-4">
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Available</p>
-                      <p className="text-xl font-black text-[#005A8C] mt-0.5">
-                        {listing.remainingCredits.toLocaleString()}
-                        <span className="text-xs font-normal text-gray-400 ml-1">tCO₂e</span>
-                      </p>
-                      {listing.remainingCredits < listing.creditsAmount && (
-                        <p className="text-[10px] text-gray-400 font-semibold mt-0.5">
-                          of {listing.creditsAmount.toLocaleString()} listed
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Price/Credit</p>
-                      <p className="text-xl font-black text-[#F28C28] mt-0.5">
-                        ${listing.pricePerCredit.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between border-t border-gray-50 pt-3">
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400">Total Value</p>
-                      <p className="text-sm font-black text-gray-700">${listing.totalPrice.toLocaleString()}</p>
-                    </div>
-                    <button
-                      onClick={() => handleBuy(listing.id)}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-[#005A8C] text-white text-xs font-bold rounded-xl hover:bg-[#00426b] transition-all cursor-pointer"
+            <div className="px-5 py-2 grid grid-cols-2 border-b border-gray-50">
+              <span className="text-[10px] font-bold text-[#009B9E] uppercase tracking-wider">Amount (tCO₂e)</span>
+              <span className="text-[10px] font-bold text-[#009B9E] uppercase tracking-wider text-right">Ask Price</span>
+            </div>
+            {listings.length === 0 ? (
+              <div className="p-10 text-center">
+                <p className="text-sm font-bold text-gray-300">No sell orders</p>
+                <p className="text-xs text-gray-300 mt-1">List credits for sale to get started</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-50">
+                {[...listings]
+                  .sort((a, b) => a.pricePerCredit - b.pricePerCredit)
+                  .map((listing) => (
+                    <div
+                      key={`sell-${listing.pricePerCredit}`}
+                      className="px-5 py-3 grid grid-cols-2 items-center hover:bg-emerald-50/40 transition-colors"
                     >
-                      <ShoppingCart size={13} />
-                      Buy
-                    </button>
-                  </div>
-                </div>
-              ))}
+                      <span className="text-sm font-black text-[#009B9E]">
+                        {listing.totalCredits.toLocaleString()}
+                      </span>
+                      <span className="text-sm font-black text-gray-800 text-right">
+                        ${listing.pricePerCredit.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
 
-              {/* Buy request cards */}
-              {showBuyCards && buyRequests.map((req) => (
-                <div
-                  key={`buy-${req.id}`}
-                  className="bg-white border border-amber-100 rounded-2xl p-5 shadow-sm hover:border-[#F28C28]/40 hover:shadow-md transition-all flex flex-col gap-4"
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Buyer</p>
-                      <p className="text-sm font-black text-gray-800 mt-0.5 truncate max-w-[180px]">
-                        {req.buyerEmail}
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
-                      BUY
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 border-t border-gray-50 pt-4">
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Wants</p>
-                      <p className="text-xl font-black text-[#F28C28] mt-0.5">
-                        {req.remainingCredits.toLocaleString()}
-                        <span className="text-xs font-normal text-gray-400 ml-1">tCO₂e</span>
-                      </p>
-                      {req.remainingCredits < req.creditsAmount && (
-                        <p className="text-[10px] text-gray-400 font-semibold mt-0.5">
-                          of {req.creditsAmount.toLocaleString()} requested
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Max Price</p>
-                      <p className="text-xl font-black text-[#005A8C] mt-0.5">
-                        ${req.pricePerCredit.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between border-t border-gray-50 pt-3">
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400">Max Total</p>
-                      <p className="text-sm font-black text-gray-700">
-                        ${(req.remainingCredits * req.pricePerCredit).toLocaleString(undefined, {
-                          maximumFractionDigits: 2,
-                        })}
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-extrabold px-3 py-1.5 rounded-xl bg-amber-50 text-amber-600 border border-amber-100">
-                      OPEN
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -698,7 +629,17 @@ export default function CarbonMarketPage() {
                         </p>
                       </div>
                     </div>
-                    <p className="text-sm font-black text-[#F28C28]">${listing.totalPrice.toLocaleString()}</p>
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm font-black text-[#F28C28]">${listing.totalPrice.toLocaleString()}</p>
+                      {(listing.status === "pending_matching" || listing.status === "active") && (
+                        <button
+                          onClick={() => handleCancel(listing.id)}
+                          className="w-7 h-7 rounded-full bg-red-50 hover:bg-red-100 flex items-center justify-center transition-colors"
+                        >
+                          <X size={13} className="text-red-500" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -730,7 +671,7 @@ export default function CarbonMarketPage() {
                         <p className="text-sm font-black text-gray-800">
                           {req.creditsAmount.toLocaleString()} tCO₂e
                           <span className="text-xs font-normal text-gray-400 ml-2">
-                            @ max ${req.pricePerCredit}/credit
+                            @ bid ${req.pricePerCredit}/credit
                           </span>
                         </p>
                         <p className="text-xs text-gray-400 font-semibold mt-0.5">
@@ -741,17 +682,27 @@ export default function CarbonMarketPage() {
                         </p>
                       </div>
                     </div>
-                    <span
-                      className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
-                        req.status === "filled"
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                          : req.status === "cancelled"
-                          ? "bg-red-50 text-red-700 border-red-100"
-                          : "bg-amber-50 text-amber-700 border-amber-100"
-                      }`}
-                    >
-                      {req.status.toUpperCase()}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
+                          req.status === "filled"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                            : req.status === "cancelled"
+                            ? "bg-red-50 text-red-700 border-red-100"
+                            : "bg-amber-50 text-amber-700 border-amber-100"
+                        }`}
+                      >
+                        {req.status.toUpperCase()}
+                      </span>
+                      {(req.status === "pending_matching" || req.status === "active") && (
+                        <button
+                          onClick={() => handleCancel(req.id)}
+                          className="w-7 h-7 rounded-full bg-red-50 hover:bg-red-100 flex items-center justify-center transition-colors"
+                        >
+                          <X size={13} className="text-red-500" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -776,23 +727,28 @@ export default function CarbonMarketPage() {
                     className="bg-white border border-gray-200/60 rounded-2xl p-4 shadow-sm flex items-center justify-between"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-9 h-9 rounded-xl bg-[#005A8C]/10 flex items-center justify-center">
-                        <ArrowLeftRight size={14} className="text-[#005A8C]" />
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${tx.orderType === "buy" ? "bg-[#F28C28]/10" : "bg-[#009B9E]/10"}`}>
+                        {tx.orderType === "buy"
+                          ? <ShoppingCart size={14} className="text-[#F28C28]" />
+                          : <TrendingUp size={14} className="text-[#009B9E]" />}
                       </div>
                       <div>
                         <p className="text-sm font-black text-gray-800">
+                          <span className={`mr-2 text-xs font-extrabold uppercase ${tx.orderType === "buy" ? "text-[#F28C28]" : "text-[#009B9E]"}`}>
+                            {tx.orderType}
+                          </span>
                           {tx.amount.toLocaleString()} tCO₂e
                         </p>
-                        <p className="text-xs text-gray-400 font-semibold mt-0.5">
-                          {tx.fromEmail} → {tx.toEmail}
+                        <p className="text-[10px] text-gray-400 font-semibold flex items-center gap-1 mt-0.5">
+                          <Clock size={10} />
+                          {formatDate(tx.createdAt)}
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-black text-gray-700">${tx.totalPrice.toLocaleString()}</p>
-                      <p className="text-[10px] text-gray-400 font-semibold flex items-center gap-1 justify-end mt-0.5">
-                        <Clock size={10} />
-                        {formatDate(tx.createdAt)}
+                      <p className="text-[10px] text-gray-400 font-semibold mt-0.5">
+                        ${tx.pricePerCredit.toFixed(2)}/credit
                       </p>
                     </div>
                   </div>
@@ -878,7 +834,7 @@ export default function CarbonMarketPage() {
               <div>
                 <h2 className="text-xl font-black text-[#F28C28]">Place Buy Request</h2>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
-                  Auto-matches cheapest sell orders ≤ your max price
+                  Auto-matches cheapest sell orders ≤ your bid price
                 </p>
               </div>
               <button
@@ -904,21 +860,21 @@ export default function CarbonMarketPage() {
               </div>
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
-                  Max Price per Credit (USD)
+                  Bid Price per Credit (USD)
                 </label>
                 <input
                   type="number" min="0.01" step="0.01" required
-                  value={buyMaxPrice}
-                  onChange={(e) => setBuyMaxPrice(e.target.value)}
+                  value={buyBidPrice}
+                  onChange={(e) => setBuyBidPrice(e.target.value)}
                   placeholder="e.g. 13.00"
                   className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#F28C28] focus:ring-2 focus:ring-[#F28C28]/10 transition-all"
                 />
               </div>
-              {buyAmount && buyMaxPrice && (
+              {buyAmount && buyBidPrice && (
                 <div className="p-4 bg-[#F28C28]/5 border border-[#F28C28]/10 rounded-xl">
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Max Total Spend</p>
                   <p className="text-xl font-black text-[#F28C28] mt-0.5">
-                    ${(parseFloat(buyAmount || "0") * parseFloat(buyMaxPrice || "0")).toLocaleString(undefined, {
+                    ${(parseFloat(buyAmount || "0") * parseFloat(buyBidPrice || "0")).toLocaleString(undefined, {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}

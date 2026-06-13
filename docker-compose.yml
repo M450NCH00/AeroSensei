@@ -9,13 +9,20 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD-SHELL", "cub zk-ready localhost:2181 5 2>/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: kafka-broker
     restart: unless-stopped
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
     environment:
@@ -27,13 +34,39 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_RETENTION_HOURS: 168
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: on-failure
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for Kafka broker...';
+      cub kafka-ready -b kafka:29092 1 60;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 --topic carbon-buy-requests;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 --topic carbon-sell-listings;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic carbon-matching-complete;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic carbon-buy-requests.DLT;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic carbon-sell-listings.DLT;
+      echo 'All Kafka topics created.';
+      "
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     restart: unless-stopped
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     ports:
       - "8888:8080"
     environment:
@@ -41,6 +74,12 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # --- TIME-SERIES DATABASE (Sensor Readings) ---
   influxdb:
@@ -60,6 +99,12 @@ services:
       - DOCKER_INFLUXDB_INIT_ORG=my-org
       - DOCKER_INFLUXDB_INIT_BUCKET=sensors_data
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-admin-token-12345
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # --- RELATIONAL DATABASE (Sensor Metadata & Coordinates) ---
   postgres:
@@ -81,6 +126,12 @@ services:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
       - POSTGRES_DB=postgresdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d postgresdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -91,6 +142,12 @@ services:
     environment:
       - PGADMIN_DEFAULT_EMAIL=admin@admin.com
       - PGADMIN_DEFAULT_PASSWORD=admin
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -98,6 +155,12 @@ services:
     ports:
       - "6379:6379"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   backend:
     build: ./backend # Points to the folder containing your new Dockerfile
@@ -105,16 +168,26 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - postgres
-      - influxdb
-      - redis
-      - kafka
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     environment:
       - DB_URL=jdbc:postgresql://postgresdb:5432/postgresdb
       - DB_USER=admin
       - DB_PASSWORD=ChangeThisPassword123!
       - JWT_SECRET=your-hackathon-super-secret-key-xyz123
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # --- AI AGENT ---
   ai-agent:
@@ -129,6 +202,12 @@ services:
       - OLLAMA_HOST=http://host.docker.internal:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5001/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   frontend:
     build:
@@ -140,11 +219,19 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
-      - ai-agent
+      backend:
+        condition: service_healthy
+      ai-agent:
+        condition: service_healthy
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8080
       - NEXT_PUBLIC_AI_AGENT_URL=http://localhost:5001
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # --- OBJECT STORAGE (MinIO) ---
   minio:
@@ -160,15 +247,21 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   minio-init:
     image: minio/minio:latest
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     restart: on-failure
     entrypoint: >
       /bin/sh -c "
-      sleep 5;
       /usr/bin/mc alias set dockerminio http://minio:9000 minioadmin minioadmin123;
       /usr/bin/mc mb dockerminio/influx-backups;
       exit 0;
@@ -181,8 +274,10 @@ services:
     container_name: influx-backup-cron
     restart: unless-stopped
     depends_on:
-      - influxdb
-      - minio
+      influxdb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=my-super-secret-admin-token-12345

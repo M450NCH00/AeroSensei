@@ -6,6 +6,10 @@ from knowledge_base import SYSTEM_PROMPT
 app = Flask(__name__)
 CORS(app)
 
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok"}), 200
+
 @app.route('/ask', methods=['POST'])
 def ask():
 

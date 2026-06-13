@@ -4,6 +4,7 @@ import com.aerosensei.dto.BalanceResponse;
 import com.aerosensei.dto.CarbonListingResponse;
 import com.aerosensei.dto.CarbonTransactionResponse;
 import com.aerosensei.dto.OhlcCandle;
+import com.aerosensei.dto.OrderBookEntry;
 import com.aerosensei.dto.PriceHistoryPoint;
 import com.aerosensei.entity.CarbonListing;
 import com.aerosensei.entity.CarbonTransaction;
@@ -26,6 +27,7 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Comparator;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -40,9 +42,19 @@ public class CarbonTradingService {
     // ── Queries ───────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public List<CarbonListingResponse> getActiveListings() {
+    public List<OrderBookEntry> getActiveListings() {
         return listingRepo.findActiveSellListings()
-                .stream().map(this::toListingResponse).collect(Collectors.toList());
+                .stream()
+                .collect(Collectors.groupingBy(
+                        CarbonListing::getPricePerCredit,
+                        Collectors.reducing(BigDecimal.ZERO,
+                                CarbonListing::getRemainingCredits,
+                                BigDecimal::add)
+                ))
+                .entrySet().stream()
+                .map(e -> new OrderBookEntry("sell", e.getKey(), e.getValue()))
+                .sorted(Comparator.comparing(OrderBookEntry::getPricePerCredit))
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -52,9 +64,19 @@ public class CarbonTradingService {
     }
 
     @Transactional(readOnly = true)
-    public List<CarbonListingResponse> getActiveBuyRequests() {
+    public List<OrderBookEntry> getActiveBuyRequests() {
         return listingRepo.findActiveBuyRequests()
-                .stream().map(this::toListingResponse).collect(Collectors.toList());
+                .stream()
+                .collect(Collectors.groupingBy(
+                        CarbonListing::getPricePerCredit,
+                        Collectors.reducing(BigDecimal.ZERO,
+                                CarbonListing::getRemainingCredits,
+                                BigDecimal::add)
+                ))
+                .entrySet().stream()
+                .map(e -> new OrderBookEntry("buy", e.getKey(), e.getValue()))
+                .sorted(Comparator.comparing(OrderBookEntry::getPricePerCredit).reversed())
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -73,11 +95,31 @@ public class CarbonTradingService {
     public List<CarbonTransactionResponse> getMyTransactions(String email) {
         Company company = resolveCompany(email);
         return transactionRepo.findByFromCompanyOrToCompanyOrderByCreatedAtDesc(company, company)
-                .stream().map(this::toTransactionResponse).collect(Collectors.toList());
+                .stream().map(tx -> toTransactionResponse(tx, company)).collect(Collectors.toList());
     }
 
     public Optional<CarbonListing> getListingById(Long id) {
         return listingRepo.findById(id);
+    }
+
+    @Transactional
+    public void cancelListing(Long id, String email) {
+        CarbonListing listing = listingRepo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Listing not found"));
+
+        Company company = resolveCompany(email);
+        boolean isSell = listing.getSellerCompany() != null;
+        boolean owned = isSell
+                ? listing.getSellerCompany().getId().equals(company.getId())
+                : listing.getBuyerCompany() != null && listing.getBuyerCompany().getId().equals(company.getId());
+        if (!owned) throw new RuntimeException("Not authorized to cancel this listing");
+
+        if (!"pending_matching".equals(listing.getStatus()) && !"active".equals(listing.getStatus())) {
+            throw new RuntimeException("Cannot cancel a listing with status: " + listing.getStatus());
+        }
+
+        listing.setStatus("cancelled");
+        listingRepo.save(listing);
     }
 
     public Optional<BigDecimal> getLatestMarketPrice() {
@@ -173,7 +215,7 @@ public class CarbonTradingService {
         listing.setBuyerCompany(buyerCompany);
         listingRepo.save(listing);
 
-        return toTransactionResponse(tx);
+        return toTransactionResponse(tx, buyerCompany);
     }
 
     // ── OHLC / price history ──────────────────────────────────────────────────
@@ -267,12 +309,14 @@ public class CarbonTradingService {
         );
     }
 
-    private CarbonTransactionResponse toTransactionResponse(CarbonTransaction tx) {
+    private CarbonTransactionResponse toTransactionResponse(CarbonTransaction tx, Company currentCompany) {
+        String orderType = tx.getFromCompany().getId().equals(currentCompany.getId()) ? "sell" : "buy";
+        BigDecimal pricePerCredit = tx.getPrice().divide(tx.getAmount(), 2, RoundingMode.HALF_UP);
         return new CarbonTransactionResponse(
                 tx.getId(),
-                tx.getFromCompany().getUser().getEmail(),
-                tx.getToCompany().getUser().getEmail(),
+                orderType,
                 tx.getAmount(),
+                pricePerCredit,
                 tx.getPrice(),
                 tx.getCreatedAt()
         );
