@@ -29,10 +29,6 @@ INSERT INTO role_permissions (
     can_delete_records
 ) 
 VALUES 
-    -- Admins can do everything
     ('Government', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
-    
-    -- Company can view data and edit their own sensors
-    ('Company', TRUE, TRUE, TRUE, TRUE, FALSE, FALSE),
-    
+    ('Company', TRUE, TRUE, TRUE, TRUE, FALSE, FALSE)
 ON CONFLICT (role_name) DO NOTHING;
