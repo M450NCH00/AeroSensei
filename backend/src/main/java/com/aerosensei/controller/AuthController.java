@@ -96,4 +96,22 @@ public class AuthController {
             return ResponseEntity.status(403).body(e.getMessage());
         }
     }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout() {
+        // Create blank cookies that expire immediately (maxAge = 0)
+        // CRITICAL: The paths and settings must match exactly how they were created in /login
+        ResponseCookie cleanAccessCookie = ResponseCookie.from("accessToken", "")
+                .httpOnly(true).secure(secureCookies).path("/").maxAge(0).sameSite("Strict").build();
+
+        ResponseCookie cleanRefreshCookie = ResponseCookie.from("refreshToken", "")
+                .httpOnly(true).secure(secureCookies).path("/api/auth/refresh").maxAge(0).sameSite("Strict").build();
+
+        log.info("User logged out successfully, cookies wiped.");
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cleanAccessCookie.toString())
+                .header(HttpHeaders.SET_COOKIE, cleanRefreshCookie.toString())
+                .body("Logged out successfully");
+    }
 }
