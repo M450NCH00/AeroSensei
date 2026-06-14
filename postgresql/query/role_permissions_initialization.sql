@@ -30,12 +30,9 @@ INSERT INTO role_permissions (
 ) 
 VALUES 
     -- Admins can do everything
-    ('Admin', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
+    ('Government', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
     
-    -- Technicians can view data and edit sensors, but cannot manage users
-    ('Technician', TRUE, TRUE, TRUE, TRUE, FALSE, FALSE),
-    
-    -- Viewers can only look at graphs and the registry
-    ('Viewer', TRUE, TRUE, FALSE, FALSE, FALSE, FALSE)
+    -- Company can view data and edit their own sensors
+    ('Company', TRUE, TRUE, TRUE, TRUE, FALSE, FALSE),
     
 ON CONFLICT (role_name) DO NOTHING;

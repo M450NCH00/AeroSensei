@@ -3,7 +3,9 @@ package com.aerosensei.controller;
 import com.aerosensei.dto.BalanceResponse;
 import com.aerosensei.dto.CarbonListingResponse;
 import com.aerosensei.dto.CarbonTransactionResponse;
+import com.aerosensei.dto.CompanyOverviewResponse;
 import com.aerosensei.dto.CreateListingRequest;
+import com.aerosensei.dto.GovernmentTransactionResponse;
 import com.aerosensei.dto.OhlcCandle;
 import com.aerosensei.dto.OrderBookEntry;
 import com.aerosensei.dto.OrderMatchingRequest;
@@ -168,5 +170,17 @@ public class CarbonTradingController {
     public ResponseEntity<List<OhlcCandle>> getOhlc(
             @RequestParam(defaultValue = "1M") String range) {
         return ResponseEntity.ok(carbonTradingService.getOhlcData(range));
+    }
+
+    // ── Government-only endpoints ─────────────────────────────────────────────
+
+    @GetMapping("/gov/transactions")
+    public ResponseEntity<List<GovernmentTransactionResponse>> getAllTransactions() {
+        return ResponseEntity.ok(carbonTradingService.getAllTransactions());
+    }
+
+    @GetMapping("/gov/companies")
+    public ResponseEntity<List<CompanyOverviewResponse>> getAllCompaniesOverview() {
+        return ResponseEntity.ok(carbonTradingService.getAllCompaniesOverview());
     }
 }

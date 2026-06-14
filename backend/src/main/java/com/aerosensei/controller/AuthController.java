@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.*;
 import com.aerosensei.service.AuthService;
 import com.aerosensei.entity.AuthResponse;
 import com.aerosensei.entity.LoginRequest;
+import com.aerosensei.repository.UserRepository;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import java.util.Map;
 
 
 @RestController
@@ -26,10 +29,21 @@ public class AuthController {
     @Autowired
     private AuthService authService;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @Value("${app.secure-cookies:false}")
     private boolean secureCookies;
 
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
+    @GetMapping("/me")
+    public ResponseEntity<?> getMe(@AuthenticationPrincipal String email) {
+        if (email == null) return ResponseEntity.status(401).body("Not authenticated");
+        return userRepository.findByEmail(email)
+                .map(user -> ResponseEntity.ok(Map.of("email", user.getEmail(), "role", user.getRole())))
+                .orElse(ResponseEntity.status(404).build());
+    }
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request) {
