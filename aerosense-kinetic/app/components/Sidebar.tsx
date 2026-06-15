@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Bot, Map, Leaf, Settings, LogOut } from "lucide-react";
+import axiosInstance from "../api/axiosInstance";
 
 export default function Sidebar() {
   const pathname = usePathname(); // This magic hook grabs the current URL path!
@@ -16,6 +17,22 @@ export default function Sidebar() {
     { name: "Carbon Market", href: "/dashboard/carbon", icon: Leaf },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
+
+  const handleLogout = async (e: React.MouseEvent) => {
+    e.preventDefault(); // Locks the click event so Axios can finish its job
+
+    try {
+      // Tell the backend to destroy the cookies
+      await axiosInstance.post("/auth/logout");
+      
+      // Forcing a hard reload wipes the entire React memory state cleanly.
+      window.location.href = "/login";
+    } catch (error) {
+      console.error("Failed to logout cleanly", error);
+      // Force them to login anyway if something gets stuck
+      window.location.href = "/login";
+    }
+  };
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col justify-between hidden md:flex shadow-sm z-20">
@@ -64,18 +81,18 @@ export default function Sidebar() {
 
       {/* User Profile / Logout Section */}
       <div className="p-4 border-t border-gray-100">
-        <Link 
-          href="/login" 
-          className="flex items-center justify-between px-4 py-3 text-sm font-bold text-gray-500 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all group"
+        <button 
+          onClick={handleLogout}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-bold text-gray-500 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all group cursor-pointer"
         >
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-[#005A8C] font-black text-xs">
-              JD
+              U
             </div>
             <span>Sign Out</span>
           </div>
           <LogOut size={16} className="opacity-50 group-hover:opacity-100 transition-opacity" />
-        </Link>
+        </button>
       </div>
     </aside>
   );

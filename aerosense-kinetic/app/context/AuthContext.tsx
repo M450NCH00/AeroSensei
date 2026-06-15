@@ -1,0 +1,57 @@
+// src/context/AuthContext.tsx
+"use client";
+
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import axiosInstance from "@/app/api/axiosInstance";
+
+interface User {
+  email: string;
+  role: string[];
+  permissions: string[];
+}
+
+interface AuthContextType {
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  hasPermission: (permission: string) => boolean;
+  hasRole: (role: string) => boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const response = await axiosInstance.get<User>("/auth/me");
+        setUser(response.data);
+      } catch (error) {
+        // Just clear the user, don't worry about redirecting here
+        setUser(null); 
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkSession();
+  }, []);
+
+  const hasPermission = (permission: string) => user?.permissions.includes(permission) ?? false;
+  const hasRole = (role: string) => user?.role.includes(role) ?? false;
+
+  return (
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, hasPermission, hasRole }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) throw new Error("useAuth must be used within an AuthProvider");
+  return context;
+};
