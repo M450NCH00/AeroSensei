@@ -1,26 +1,24 @@
 // src/app/dashboard/layout.tsx
 import Sidebar from "../components/Sidebar";
-import AuthGuard from "../components/AuthGuard"; // 1. Import the guard
+import AuthGuard from "../components/AuthGuard";
+import { AuthProvider } from "../context/AuthContext";
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    // 2. Wrap everything inside the guard
-    <AuthGuard>
-      <div className="flex h-screen bg-[#F8FAFC] font-sans text-[#1D1D1F] overflow-hidden">
+    // 1. The Brain wraps everything
+    <AuthProvider> 
+      
+      // 2. The Bouncer protects the inner content
+      <AuthGuard> 
         
-        {/* Your Sidebar Navigation */}
-        <Sidebar />
-
-        {/* The main content area where your pages load */}
-        <main className="flex-1 overflow-y-auto relative">
-          {children}
-        </main>
-
-      </div>
-    </AuthGuard>
+        <div className="flex h-screen bg-[#F8FAFC] font-sans text-[#1D1D1F] overflow-hidden">
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto relative">
+            {children}
+          </main>
+        </div>
+        
+      </AuthGuard>
+    </AuthProvider>
   );
 }

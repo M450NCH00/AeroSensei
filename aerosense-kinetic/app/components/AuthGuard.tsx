@@ -1,36 +1,22 @@
 // src/components/AuthGuard.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import axiosInstance from "../api/axiosInstance";
+import { useAuth } from "../context/AuthContext";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const { isAuthenticated, isLoading } = useAuth(); // Tap into the global state!
 
   useEffect(() => {
-    const checkSessionAuthentication = async () => {
-      try {
-        // Hit the /me endpoint. If it works, the user is perfectly authenticated.
-        const response = await axiosInstance.get("/auth/me");
-        
-        // Optional: You can store response.data (email, role) in React Context or Zustand here later!
-        console.log("Authenticated as:", response.data.email);
-        
-        setIsAuthenticated(true);
-      } catch (error) {
-        setIsAuthenticated(false);
-        router.push("/login");
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    // If loading finishes and they aren't authenticated, bounce them
+    if (!isLoading && !isAuthenticated) {
+      router.push("/login");
+    }
+  }, [isLoading, isAuthenticated, router]);
 
-    checkSessionAuthentication();
-  }, [router]);
-
+  // Show the spinner while the AuthContext is fetching data
   if (isLoading) {
     return (
       <div className="fixed inset-0 bg-[#F8FAFC] flex flex-col items-center justify-center z-50 select-none">
@@ -42,5 +28,6 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // If they pass the check, render the dashboard pages.
   return isAuthenticated ? <>{children}</> : null;
 }
