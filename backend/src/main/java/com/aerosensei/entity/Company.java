@@ -16,6 +16,15 @@ public class Company {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @Column(name = "company_name")
+    private String companyName;
+
+    @Column(name = "industry_type")
+    private String industryType;
+
+    @Column(name = "scale")
+    private String scale;
+
     @Column(name = "carbon_credits", nullable = false)
     private BigDecimal carbonCredits;
 
@@ -30,6 +39,15 @@ public class Company {
 
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
+
+    public String getCompanyName() { return companyName; }
+    public void setCompanyName(String companyName) { this.companyName = companyName; }
+
+    public String getIndustryType() { return industryType; }
+    public void setIndustryType(String industryType) { this.industryType = industryType; }
+
+    public String getScale() { return scale; }
+    public void setScale(String scale) { this.scale = scale; }
 
     public BigDecimal getCarbonCredits() { return carbonCredits; }
     public void setCarbonCredits(BigDecimal carbonCredits) { this.carbonCredits = carbonCredits; }

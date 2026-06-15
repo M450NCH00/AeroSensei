@@ -3,6 +3,8 @@ package com.aerosensei.service;
 import com.aerosensei.dto.BalanceResponse;
 import com.aerosensei.dto.CarbonListingResponse;
 import com.aerosensei.dto.CarbonTransactionResponse;
+import com.aerosensei.dto.CompanyOverviewResponse;
+import com.aerosensei.dto.GovernmentTransactionResponse;
 import com.aerosensei.dto.OhlcCandle;
 import com.aerosensei.dto.OrderBookEntry;
 import com.aerosensei.dto.PriceHistoryPoint;
@@ -24,6 +26,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -96,6 +99,49 @@ public class CarbonTradingService {
         Company company = resolveCompany(email);
         return transactionRepo.findByFromCompanyOrToCompanyOrderByCreatedAtDesc(company, company)
                 .stream().map(tx -> toTransactionResponse(tx, company)).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<GovernmentTransactionResponse> getAllTransactions() {
+        return transactionRepo.findAllByOrderByCreatedAtDesc().stream()
+                .map(tx -> {
+                    BigDecimal pricePerCredit = tx.getPrice().divide(tx.getAmount(), 2, RoundingMode.HALF_UP);
+                    return new GovernmentTransactionResponse(
+                            tx.getId(),
+                            tx.getFromCompany().getUser().getEmail(),
+                            tx.getToCompany().getUser().getEmail(),
+                            tx.getAmount(),
+                            pricePerCredit,
+                            tx.getPrice(),
+                            tx.getCreatedAt()
+                    );
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<CompanyOverviewResponse> getAllCompaniesOverview() {
+        LocalDateTime monthAgo = LocalDateTime.now().minusMonths(1);
+        List<CarbonTransaction> recentTxs = transactionRepo.findByCreatedAtAfterOrderByCreatedAtAsc(monthAgo);
+
+        Map<Long, BigDecimal> netChange = new HashMap<>();
+        for (CarbonTransaction tx : recentTxs) {
+            netChange.merge(tx.getFromCompany().getId(), tx.getAmount().negate(), BigDecimal::add);
+            netChange.merge(tx.getToCompany().getId(), tx.getAmount(), BigDecimal::add);
+        }
+
+        return companyRepo.findAll().stream()
+                .map(c -> new CompanyOverviewResponse(
+                        c.getId(),
+                        c.getUser().getEmail(),
+                        c.getCompanyName(),
+                        c.getIndustryType(),
+                        c.getScale(),
+                        c.getCarbonCredits(),
+                        netChange.getOrDefault(c.getId(), BigDecimal.ZERO)
+                ))
+                .sorted(Comparator.comparing(CompanyOverviewResponse::getCurrentCredits).reversed())
+                .collect(Collectors.toList());
     }
 
     public Optional<CarbonListing> getListingById(Long id) {

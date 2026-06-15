@@ -13,5 +13,6 @@ public interface CarbonTransactionRepository extends JpaRepository<CarbonTransac
     List<CarbonTransaction> findByFromCompanyOrToCompanyOrderByCreatedAtDesc(Company from, Company to);
     Optional<CarbonTransaction> findTopByOrderByCreatedAtDesc();
     List<CarbonTransaction> findAllByOrderByCreatedAtAsc();
+    List<CarbonTransaction> findAllByOrderByCreatedAtDesc();
     List<CarbonTransaction> findByCreatedAtAfterOrderByCreatedAtAsc(java.time.LocalDateTime after);
 }
