@@ -25,6 +25,7 @@ import com.aerosensei.entity.SensorRegistry;
 import com.aerosensei.repository.SensorRegistryRepository;
 import com.aerosensei.dto.SensorAverageDTO;
 import com.aerosensei.dto.ClusterAverageDTO;
+import com.aerosensei.dto.SensorDataWithLocationDTO;
 
 @Service
 public class SensorService {
@@ -228,5 +229,36 @@ public class SensorService {
 
         logs.info("Reduced {} raw sensors into {} clean map clusters.", sensorsInArea.size(), clusteredResults.size());
         return clusteredResults;
+    }
+
+    public List<SensorDataWithLocationDTO> searchSensorsByLocation(String locationName) {
+        logs.info("Searching for sensors matching location: {}", locationName);
+
+        // 1. Fetch matching database records
+        List<SensorRegistry> matchingSensors = registryRepository.findByLocationNameContainingIgnoreCase(locationName);
+
+        List<SensorDataWithLocationDTO> combinedResults = new ArrayList<>();
+
+        // 2. Loop through and bundle the metadata with the live Redis/Influx data
+        for (SensorRegistry sensor : matchingSensors) {
+
+            // Convert the DB entity into your existing SensorInfoDTO
+            SensorInfoDTO infoDTO = new SensorInfoDTO(
+                    sensor.getSensorId(),
+                    sensor.getLocationName(),
+                    sensor.getLatitude(),
+                    sensor.getLongitude(),
+                    sensor.getStatus()
+            );
+
+            // Fetch the fast live reading (this is your existing method!)
+            SensorAverageDTO liveData = getRealTimeAverage(sensor.getSensorId());
+
+            // Bundle them together
+            combinedResults.add(new SensorDataWithLocationDTO(infoDTO, liveData));
+        }
+
+        logs.info("Search complete. Found {} sensors.", combinedResults.size());
+        return combinedResults;
     }
 }

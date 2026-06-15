@@ -13,6 +13,7 @@ import java.util.List;
 
 import com.aerosensei.service.SensorService;
 import com.aerosensei.dto.SensorInfoDTO;
+import com.aerosensei.dto.SensorDataWithLocationDTO;
 
 @RestController
 @RequestMapping("/api/sensors")
@@ -75,5 +76,18 @@ public class SensorController {
 
         List<ClusterAverageDTO> clusteredData = sensorService.getClusteredAveragesInArea(minLat, maxLat, minLon, maxLon, rows, cols);
         return ResponseEntity.ok(clusteredData);
+    }
+    
+    // URL: GET http://localhost:8081/api/sensors/search?location=Hanoi
+    @GetMapping("/search")
+    public ResponseEntity<List<SensorDataWithLocationDTO>> searchByLocation(@RequestParam String location) {
+
+        List<SensorDataWithLocationDTO> results = sensorService.searchSensorsByLocation(location);
+
+        if (results.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+
+        return ResponseEntity.ok(results);
     }
 }

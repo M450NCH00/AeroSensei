@@ -24,4 +24,7 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             @Param("minLon") BigDecimal minLon,
             @Param("maxLon") BigDecimal maxLon
     );
+
+    List<SensorRegistry> findByLocationNameContainingIgnoreCase(String locationName);
 }
+
