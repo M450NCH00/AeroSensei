@@ -16,7 +16,7 @@ public class User {
     @Column(name = "password_hash", nullable = false)
     private String password; // This should hold the HASHED password, never plain text
 
-    @Column(nullable = false)
+    @Column(name = "role_name", nullable = false)
     private String role;
 
     // Getters and Setters

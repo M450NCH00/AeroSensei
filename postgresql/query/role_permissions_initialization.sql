@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS role_permissions (
-                                                role_name VARCHAR(50) PRIMARY KEY,
+    role_name VARCHAR(50) PRIMARY KEY,
 
     -- Viewing Permissions
     can_view_graph BOOLEAN DEFAULT FALSE,
@@ -28,10 +28,6 @@ INSERT INTO role_permissions (
     can_delete_records
 )
 VALUES
-    -- Government acts as the Admin and can do everything
     ('Government', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
-
-    -- Companies can only look at graphs and the registry
     ('Company', TRUE, TRUE, FALSE, FALSE, FALSE, FALSE)
-
-    ON CONFLICT (role_name) DO NOTHING;
+ON CONFLICT (role_name) DO NOTHING;
