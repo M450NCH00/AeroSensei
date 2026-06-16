@@ -1,19 +1,24 @@
 package com.aerosensei.controller;
 
-import com.aerosensei.dto.ClusterAverageDTO;
-import com.aerosensei.dto.SensorAverageDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.List;
 
+import com.aerosensei.dto.ClusterAverageDTO;
+import com.aerosensei.dto.SensorAverageDTO;
 import com.aerosensei.service.SensorService;
 import com.aerosensei.dto.SensorInfoDTO;
 import com.aerosensei.dto.SensorDataWithLocationDTO;
+import com.aerosensei.dto.SensorRegistrationDTO;
 
 @RestController
 @RequestMapping("/api/sensors")
@@ -89,5 +94,29 @@ public class SensorController {
         }
 
         return ResponseEntity.ok(results);
+    }
+
+    // URL: POST http://localhost:8081/api/sensors/register
+    @PostMapping("/register")
+    public ResponseEntity<SensorInfoDTO> registerSensor(@RequestBody SensorRegistrationDTO registrationDTO) {
+        try {
+            SensorInfoDTO savedSensor = sensorService.registerNewSensor(registrationDTO);
+            return ResponseEntity.status(HttpStatus.CREATED).body(savedSensor);
+        } catch (RuntimeException e) {
+            // If the sensor already exists, return a 400 Bad Request
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+        }
+    }
+
+    @Transactional
+    @DeleteMapping("/{sensorId}")
+    public ResponseEntity<String> deleteSensor(@PathVariable String sensorId) {
+        try {
+            sensorService.deleteSensor(sensorId);
+            return ResponseEntity.ok("Sensor " + sensorId + " has been successfully deleted from the registry.");
+        } catch (RuntimeException e) {
+            // Returns a 404 Not Found if the ID doesn't exist
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
+        }
     }
 }
