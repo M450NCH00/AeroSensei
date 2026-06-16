@@ -3,9 +3,35 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Leaf, TrendingUp, TrendingDown, ArrowLeftRight, Plus, X,
-  ShoppingCart, Clock, Building2, Users,
+  ShoppingCart, Clock, Building2, FileText, BarChart3,
 } from "lucide-react";
 import axiosInstance from "../../api/axiosInstance";
+
+interface EmissionReportResponse {
+  id: number;
+  companyId: number;
+  companyName: string | null;
+  sectorName: string | null;
+  year: number;
+  activityLevel: number;
+  verifiedEmissions: number;
+  submittedAt: string;
+}
+
+interface AllocationResponse {
+  id: number;
+  companyId: number;
+  companyName: string | null;
+  sectorName: string | null;
+  year: number;
+  verifiedEmissions: number;
+  activityLevel: number;
+  intensity: number;
+  benchmarkIntensity: number;
+  deviationPct: number;
+  allocationAmount: number;
+  allocatedAt: string;
+}
 
 interface OrderBookEntry {
   type: "sell" | "buy";
@@ -45,16 +71,6 @@ interface GovTransaction {
   createdAt: string;
 }
 
-interface CompanyOverview {
-  companyId: number;
-  email: string;
-  companyName: string | null;
-  industryType: string | null;
-  scale: string | null;
-  currentCredits: number;
-  monthlyChange: number;
-}
-
 interface Balance {
   companyId: number;
   carbonCredits: number;
@@ -82,12 +98,23 @@ export default function CarbonMarketPage() {
 
   // Government state
   const [govTransactions, setGovTransactions] = useState<GovTransaction[]>([]);
-  const [companies, setCompanies] = useState<CompanyOverview[]>([]);
 
   const [ohlcData, setOhlcData] = useState<OhlcCandle[]>([]);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [range, setRange] = useState("1M");
-  const [activeTab, setActiveTab] = useState<"market" | "activity" | "companies">("market");
+  const [activeTab, setActiveTab] = useState<"market" | "activity" | "emission">("market");
+
+  // Emission report state (company only)
+  const currentYear = new Date().getFullYear();
+  const [reportYear, setReportYear] = useState<number>(currentYear);
+  const [reportActivityLevel, setReportActivityLevel] = useState("");
+  const [reportVerifiedEmissions, setReportVerifiedEmissions] = useState("");
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [reportSubmitError, setReportSubmitError] = useState<string | null>(null);
+  const [reportSubmitSuccess, setReportSubmitSuccess] = useState<string | null>(null);
+  const [myReports, setMyReports] = useState<EmissionReportResponse[]>([]);
+  const [myAllocations, setMyAllocations] = useState<AllocationResponse[]>([]);
+  const [loadingReportData, setLoadingReportData] = useState(false);
   const [showSellModal, setShowSellModal] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [sellAmount, setSellAmount] = useState("");
@@ -115,11 +142,10 @@ export default function CarbonMarketPage() {
     ];
 
     if (isGovernment) {
-      const [listingsRes, buyRequestsRes, ohlcRes, govTxRes, companiesRes] =
+      const [listingsRes, buyRequestsRes, ohlcRes, govTxRes] =
         await Promise.allSettled([
           ...sharedFetches,
           axiosInstance.get("/carbon/gov/transactions"),
-          axiosInstance.get("/carbon/gov/companies"),
         ]);
 
       if (listingsRes.status === "fulfilled") setListings(listingsRes.value.data);
@@ -127,7 +153,6 @@ export default function CarbonMarketPage() {
       if (buyRequestsRes.status === "fulfilled") setBuyRequests(buyRequestsRes.value.data);
       if (ohlcRes.status === "fulfilled") setOhlcData(ohlcRes.value.data ?? []);
       if (govTxRes.status === "fulfilled") setGovTransactions(govTxRes.value.data);
-      if (companiesRes.status === "fulfilled") setCompanies(companiesRes.value.data);
     } else {
       const [listingsRes, buyRequestsRes, ohlcRes, myListingsRes, myBuyRequestsRes, txRes, balanceRes] =
         await Promise.allSettled([
@@ -193,6 +218,61 @@ export default function CarbonMarketPage() {
       setError(err.response?.data || "Failed to place buy request.");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const fetchEmissionData = useCallback(async () => {
+    if (isGovernment || userRole === null) return;
+    setLoadingReportData(true);
+    try {
+      const [reportsRes, allocsRes] = await Promise.allSettled([
+        axiosInstance.get<EmissionReportResponse[]>("/allocations/report/my"),
+        axiosInstance.get<AllocationResponse[]>("/allocations/my"),
+      ]);
+      if (reportsRes.status === "fulfilled") setMyReports(reportsRes.value.data ?? []);
+      if (allocsRes.status === "fulfilled") setMyAllocations(allocsRes.value.data ?? []);
+    } catch {
+      // non-fatal
+    } finally {
+      setLoadingReportData(false);
+    }
+  }, [isGovernment, userRole]);
+
+  useEffect(() => {
+    if (activeTab === "emission" && !isGovernment) {
+      fetchEmissionData();
+    }
+  }, [activeTab, fetchEmissionData, isGovernment]);
+
+  // Pre-fill form when selected year matches an existing report
+  useEffect(() => {
+    const existing = myReports.find(r => r.year === reportYear);
+    if (existing) {
+      setReportActivityLevel(String(existing.activityLevel));
+      setReportVerifiedEmissions(String(existing.verifiedEmissions));
+    } else {
+      setReportActivityLevel("");
+      setReportVerifiedEmissions("");
+    }
+  }, [reportYear, myReports]);
+
+  const handleSubmitReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingReport(true);
+    setReportSubmitError(null);
+    setReportSubmitSuccess(null);
+    try {
+      await axiosInstance.post("/allocations/report", {
+        year: reportYear,
+        activityLevel: parseFloat(reportActivityLevel),
+        verifiedEmissions: parseFloat(reportVerifiedEmissions),
+      });
+      setReportSubmitSuccess(`Report for ${reportYear} submitted successfully.`);
+      await fetchEmissionData();
+    } catch (err: any) {
+      setReportSubmitError(err.response?.data?.message ?? err.response?.data ?? "Failed to submit report.");
+    } finally {
+      setIsSubmittingReport(false);
     }
   };
 
@@ -510,11 +590,6 @@ export default function CarbonMarketPage() {
         {isGovernment ? (
           <>
             <div className="bg-white border border-gray-200/60 rounded-2xl p-5 shadow-sm">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Registered Companies</p>
-              <p className="text-2xl font-black text-[#005A8C] mt-1">{companies.length}</p>
-              <p className="text-xs text-gray-400 font-semibold mt-0.5">active participants</p>
-            </div>
-            <div className="bg-white border border-gray-200/60 rounded-2xl p-5 shadow-sm">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sell Orders</p>
               <p className="text-2xl font-black text-[#009B9E] mt-1">{listings.length}</p>
               <p className="text-xs text-gray-400 font-semibold mt-0.5">{totalSellVolume.toLocaleString()} tCO₂e available</p>
@@ -560,22 +635,31 @@ export default function CarbonMarketPage() {
 
       {/* Tab Toggle */}
       <div className="flex gap-2 bg-white border border-gray-200/60 rounded-2xl p-1.5 w-fit shadow-sm">
-        {(isGovernment
-          ? (["market", "activity", "companies"] as const)
-          : (["market", "activity"] as const)
-        ).map((tab) => (
+        {(["market", "activity"] as const).map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab as typeof activeTab)}
+            onClick={() => setActiveTab(tab)}
             className={`px-5 py-2 text-sm font-bold rounded-xl transition-all cursor-pointer ${
               activeTab === tab
                 ? "bg-[#005A8C] text-white shadow-sm"
                 : "text-gray-500 hover:text-[#005A8C]"
             }`}
           >
-            {tab === "market" ? "Marketplace" : tab === "activity" ? (isGovernment ? "All Transactions" : "My Activity") : "Companies"}
+            {tab === "market" ? "Marketplace" : isGovernment ? "All Transactions" : "My Activity"}
           </button>
         ))}
+        {!isGovernment && (
+          <button
+            onClick={() => setActiveTab("emission")}
+            className={`px-5 py-2 text-sm font-bold rounded-xl transition-all cursor-pointer ${
+              activeTab === "emission"
+                ? "bg-[#005A8C] text-white shadow-sm"
+                : "text-gray-500 hover:text-[#005A8C]"
+            }`}
+          >
+            Emission Report
+          </button>
+        )}
       </div>
 
       {/* Marketplace Tab */}
@@ -864,109 +948,160 @@ export default function CarbonMarketPage() {
         )
       )}
 
-      {/* Companies Tab — Government only */}
-      {activeTab === "companies" && isGovernment && (
-        <div>
-          <h2 className="font-black text-base text-gray-800 mb-3 flex items-center gap-2">
-            <Users size={16} className="text-[#005A8C]" />
-            All Companies · Carbon Credit Overview
-          </h2>
-          {companies.length === 0 ? (
-            <div className="bg-white border border-gray-200/60 rounded-2xl p-8 text-center text-sm font-bold text-gray-400 shadow-sm">
-              No registered companies found.
-            </div>
-          ) : (
-            <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
-              <div className="px-5 py-3 grid grid-cols-12 gap-2 border-b border-gray-100">
-                <span className="col-span-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Company</span>
-                <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Industry</span>
-                <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Scale</span>
-                <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Current Credits</span>
-                <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Past 30 Days</span>
+      {/* Emission Report Tab — Company only */}
+      {activeTab === "emission" && !isGovernment && (
+        <div className="flex flex-col gap-6">
+          {/* Submit Report Card */}
+          <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
+            <div className="px-7 py-5 border-b border-gray-100 flex items-center gap-3">
+              <FileText size={18} className="text-[#005A8C]" />
+              <div>
+                <h2 className="font-black text-base text-[#005A8C]">Submit Emission Report</h2>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                  Annual verified emissions for China ETS allocation
+                </p>
               </div>
-              <div className="divide-y divide-gray-50">
-                {companies.map((company) => {
-                  const change = Number(company.monthlyChange);
-                  return (
-                    <div
-                      key={company.companyId}
-                      className="px-5 py-3.5 grid grid-cols-12 gap-2 items-center hover:bg-gray-50/60 transition-colors"
-                    >
-                      {/* Company name + email */}
-                      <div className="col-span-4 flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 shrink-0 rounded-xl bg-[#005A8C]/10 flex items-center justify-center">
-                          <Building2 size={14} className="text-[#005A8C]" />
-                        </div>
-                        <div className="min-w-0">
-                          {company.companyName ? (
-                            <>
-                              <p className="text-sm font-black text-gray-800 truncate">{company.companyName}</p>
-                              <p className="text-[10px] text-gray-400 font-semibold truncate">{company.email}</p>
-                            </>
-                          ) : (
-                            <p className="text-sm font-bold text-gray-700 truncate">{company.email}</p>
-                          )}
-                        </div>
-                      </div>
+            </div>
+            <div className="p-7">
+              {reportSubmitError && (
+                <div className="mb-5 p-4 bg-red-50 border border-red-100 rounded-2xl text-sm font-bold text-red-700 flex justify-between items-center">
+                  <span>{reportSubmitError}</span>
+                  <button onClick={() => setReportSubmitError(null)} className="cursor-pointer"><X size={16} /></button>
+                </div>
+              )}
+              {reportSubmitSuccess && (
+                <div className="mb-5 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-sm font-bold text-emerald-700 flex justify-between items-center">
+                  <span>{reportSubmitSuccess}</span>
+                  <button onClick={() => setReportSubmitSuccess(null)} className="cursor-pointer"><X size={16} /></button>
+                </div>
+              )}
+              <form onSubmit={handleSubmitReport} className="space-y-5">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                    Reporting Year
+                  </label>
+                  <select
+                    value={reportYear}
+                    onChange={(e) => setReportYear(Number(e.target.value))}
+                    className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
+                  >
+                    {[0, 1, 2, 3].map((offset) => {
+                      const y = currentYear - offset;
+                      return <option key={y} value={y}>{y}</option>;
+                    })}
+                  </select>
+                  {myReports.find(r => r.year === reportYear) && (
+                    <p className="text-[10px] font-bold text-[#F28C28] mt-1.5">
+                      Existing report found for {reportYear} — submitting will update it.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                    Activity Level
+                  </label>
+                  <input
+                    type="number" min="0.0001" step="0.0001" required
+                    value={reportActivityLevel}
+                    onChange={(e) => setReportActivityLevel(e.target.value)}
+                    placeholder="e.g. 50000"
+                    className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                  />
+                  <p className="text-[10px] font-semibold text-gray-400 mt-1">
+                    Production output in your sector&apos;s unit (e.g. tonnes of steel, GJ of fuel)
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                    Verified Emissions (tCO₂e)
+                  </label>
+                  <input
+                    type="number" min="0.0001" step="0.0001" required
+                    value={reportVerifiedEmissions}
+                    onChange={(e) => setReportVerifiedEmissions(e.target.value)}
+                    placeholder="e.g. 12500.00"
+                    className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                  />
+                </div>
+                {reportActivityLevel && reportVerifiedEmissions && (
+                  <div className="p-4 bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-xl">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                      Implied Intensity
+                    </p>
+                    <p className="text-xl font-black text-[#005A8C] mt-0.5">
+                      {(parseFloat(reportVerifiedEmissions) / parseFloat(reportActivityLevel)).toFixed(4)}
+                    </p>
+                    <p className="text-xs text-gray-400 font-semibold mt-0.5">tCO₂e per unit of output</p>
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={isSubmittingReport}
+                  className="w-full py-3.5 bg-[#005A8C] text-white font-bold rounded-2xl hover:bg-[#004a73] transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmittingReport ? "Submitting..." : `Submit ${reportYear} Report`}
+                </button>
+              </form>
+            </div>
+          </div>
 
-                      {/* Industry */}
-                      <div className="col-span-2">
-                        {company.industryType ? (
-                          <span className="text-xs font-bold text-[#005A8C] bg-[#005A8C]/8 px-2 py-0.5 rounded-lg truncate block w-fit max-w-full">
-                            {company.industryType}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-300 font-semibold">—</span>
-                        )}
-                      </div>
-
-                      {/* Scale */}
-                      <div className="col-span-1">
-                        {company.scale ? (
-                          <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border capitalize ${
-                            company.scale === "enterprise" ? "bg-purple-50 text-purple-700 border-purple-100" :
-                            company.scale === "large"      ? "bg-blue-50 text-blue-700 border-blue-100" :
-                            company.scale === "medium"     ? "bg-teal-50 text-teal-700 border-teal-100" :
-                            company.scale === "small"      ? "bg-amber-50 text-amber-700 border-amber-100" :
-                                                             "bg-gray-50 text-gray-600 border-gray-100"
-                          }`}>
-                            {company.scale}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-300 font-semibold">—</span>
-                        )}
-                      </div>
-
-                      {/* Current credits */}
-                      <div className="col-span-3 text-right">
-                        <span className="text-sm font-black text-gray-800">
-                          {Number(company.currentCredits).toLocaleString()}
+          {/* My Allocation History */}
+          <div>
+            <h2 className="font-black text-base text-gray-800 mb-3 flex items-center gap-2">
+              <BarChart3 size={16} className="text-[#009B9E]" />
+              My Allocation History
+            </h2>
+            {loadingReportData ? (
+              <div className="bg-white border border-gray-200/60 rounded-2xl p-8 text-center shadow-sm">
+                <p className="text-sm font-bold text-gray-400">Loading...</p>
+              </div>
+            ) : myAllocations.length === 0 ? (
+              <div className="bg-white border border-gray-200/60 rounded-2xl p-8 text-center shadow-sm">
+                <p className="text-sm font-bold text-gray-300">No allocations yet. Submit a report and wait for government calculation.</p>
+              </div>
+            ) : (
+              <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
+                <div className="px-5 py-3 grid grid-cols-12 gap-2 border-b border-gray-100">
+                  <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Year</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Emissions</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Allocation</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Intensity</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Benchmark</span>
+                  <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Dev%</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Allocated At</span>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {[...myAllocations].sort((a, b) => b.year - a.year).map((alloc) => {
+                    const dev = Number(alloc.deviationPct);
+                    const devColor = dev < 0 ? "text-emerald-600" : dev > 0 ? "text-red-500" : "text-gray-500";
+                    return (
+                      <div key={alloc.id} className="px-5 py-4 grid grid-cols-12 gap-2 items-center hover:bg-gray-50/50 transition-colors">
+                        <span className="col-span-1 text-sm font-black text-gray-800">{alloc.year}</span>
+                        <span className="col-span-2 text-sm font-bold text-gray-700 text-right">
+                          {Number(alloc.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })}
                         </span>
-                        <span className="text-[10px] text-gray-400 font-semibold ml-1">tCO₂e</span>
+                        <span className="col-span-2 text-sm font-black text-[#009B9E] text-right">
+                          {Number(alloc.allocationAmount).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                        </span>
+                        <span className="col-span-2 text-sm font-bold text-gray-600 text-right tabular-nums">
+                          {Number(alloc.intensity).toFixed(4)}
+                        </span>
+                        <span className="col-span-2 text-sm font-bold text-gray-600 text-right tabular-nums">
+                          {Number(alloc.benchmarkIntensity).toFixed(4)}
+                        </span>
+                        <span className={`col-span-1 text-sm font-black text-right ${devColor}`}>
+                          {dev > 0 ? "+" : ""}{dev.toFixed(2)}%
+                        </span>
+                        <span className="col-span-2 text-[10px] font-semibold text-gray-400 text-right">
+                          {new Date(alloc.allocatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                        </span>
                       </div>
-
-                      {/* Monthly change */}
-                      <div className="col-span-2 flex items-center justify-end gap-1">
-                        {change === 0 ? (
-                          <span className="text-sm font-bold text-gray-400">—</span>
-                        ) : (
-                          <>
-                            {change > 0
-                              ? <TrendingUp size={13} className="text-emerald-500" />
-                              : <TrendingDown size={13} className="text-red-500" />}
-                            <span className={`text-sm font-black ${change > 0 ? "text-emerald-500" : "text-red-500"}`}>
-                              {change > 0 ? "+" : ""}{change.toLocaleString()}
-                            </span>
-                            <span className="text-[10px] text-gray-400 font-semibold">tCO₂e</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
 

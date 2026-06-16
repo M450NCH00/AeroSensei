@@ -6,28 +6,28 @@ public class CompanyOverviewResponse {
     private Long companyId;
     private String email;
     private String companyName;
-    private String industryType;
-    private String scale;
     private BigDecimal currentCredits;
     private BigDecimal monthlyChange;
+    private Long sectorId;
+    private String sectorName;
 
     public CompanyOverviewResponse(Long companyId, String email, String companyName,
-                                    String industryType, String scale,
-                                    BigDecimal currentCredits, BigDecimal monthlyChange) {
+                                    BigDecimal currentCredits, BigDecimal monthlyChange,
+                                    Long sectorId, String sectorName) {
         this.companyId = companyId;
         this.email = email;
         this.companyName = companyName;
-        this.industryType = industryType;
-        this.scale = scale;
         this.currentCredits = currentCredits;
         this.monthlyChange = monthlyChange;
+        this.sectorId = sectorId;
+        this.sectorName = sectorName;
     }
 
     public Long getCompanyId() { return companyId; }
     public String getEmail() { return email; }
     public String getCompanyName() { return companyName; }
-    public String getIndustryType() { return industryType; }
-    public String getScale() { return scale; }
     public BigDecimal getCurrentCredits() { return currentCredits; }
     public BigDecimal getMonthlyChange() { return monthlyChange; }
+    public Long getSectorId() { return sectorId; }
+    public String getSectorName() { return sectorName; }
 }
