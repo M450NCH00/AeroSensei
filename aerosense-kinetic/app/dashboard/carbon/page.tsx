@@ -104,8 +104,9 @@ export default function CarbonMarketPage() {
   const [range, setRange] = useState("1M");
   const [activeTab, setActiveTab] = useState<"market" | "activity" | "emission">("market");
 
-  // Emission report state (company only)
   const currentYear = new Date().getFullYear();
+
+  // Emission report state (company only)
   const [reportYear, setReportYear] = useState<number>(currentYear);
   const [reportActivityLevel, setReportActivityLevel] = useState("");
   const [reportVerifiedEmissions, setReportVerifiedEmissions] = useState("");

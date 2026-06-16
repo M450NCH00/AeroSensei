@@ -43,6 +43,14 @@ interface Sector {
   description?: string;
 }
 
+interface CompanyHistoryEntry {
+  year: number;
+  verifiedEmissions: number;
+  activityLevel: number;
+  submittedAt: string;
+  benchmarkIntensity: number | null;
+}
+
 interface CompanyOverview {
   companyId: number;
   email: string;
@@ -76,6 +84,12 @@ export default function CarbonCreditPage() {
 
   // Allocations state
   const currentYear = new Date().getFullYear();
+
+  const [companiesYear, setCompaniesYear] = useState<number>(currentYear);
+  const [companiesReports, setCompaniesReports] = useState<EmissionReportResponse[]>([]);
+  const [loadingCompaniesReports, setLoadingCompaniesReports] = useState(false);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(null);
+  const [companyHistory, setCompanyHistory] = useState<Record<number, CompanyHistoryEntry[]>>({});
   const [allocYear, setAllocYear] = useState<number>(currentYear);
   const [allReports, setAllReports] = useState<EmissionReportResponse[]>([]);
   const [allocResults, setAllocResults] = useState<AllocationResponse[]>([]);
@@ -87,8 +101,12 @@ export default function CarbonCreditPage() {
 
   useEffect(() => { fetchSectors(); }, []);
   useEffect(() => {
-    if (activeTab === "companies") fetchCompanies();
-  }, [activeTab]);
+    if (activeTab === "companies") {
+      fetchCompanies();
+      fetchCompaniesReports(companiesYear);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, companiesYear]);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -119,6 +137,47 @@ export default function CarbonCreditPage() {
     } catch (e) {
       console.error(e);
     } finally { setLoadingCompanies(false); }
+  };
+
+  const fetchCompaniesReports = async (year: number) => {
+    setLoadingCompaniesReports(true);
+    try {
+      const resp = await axiosInstance.get<EmissionReportResponse[]>(`/allocations/reports/${year}`);
+      setCompaniesReports(resp.data || []);
+    } catch {
+      setCompaniesReports([]);
+    } finally { setLoadingCompaniesReports(false); }
+  };
+
+  const fetchCompanyHistory = async (companyId: number) => {
+    if (companyHistory[companyId]) return;
+    try {
+      const years = [0, 1, 2, 3].map((o) => currentYear - o);
+      const [reportResults, allocResults] = await Promise.all([
+        Promise.allSettled(years.map((y) => axiosInstance.get<EmissionReportResponse[]>(`/allocations/reports/${y}`))),
+        Promise.allSettled(years.map((y) => axiosInstance.get<AllocationResponse[]>(`/allocations/results/${y}`))),
+      ]);
+      const history: CompanyHistoryEntry[] = [];
+      reportResults.forEach((res, i) => {
+        if (res.status !== "fulfilled") return;
+        const report = (res.value.data || []).find((r) => r.companyId === companyId);
+        if (!report) return;
+        const allocRes = allocResults[i];
+        const alloc = allocRes.status === "fulfilled"
+          ? (allocRes.value.data || []).find((a) => a.companyId === companyId)
+          : undefined;
+        history.push({
+          year: report.year,
+          verifiedEmissions: report.verifiedEmissions,
+          activityLevel: report.activityLevel,
+          submittedAt: report.submittedAt,
+          benchmarkIntensity: alloc ? Number(alloc.benchmarkIntensity) : null,
+        });
+      });
+      setCompanyHistory((prev) => ({ ...prev, [companyId]: history }));
+    } catch {
+      // non-fatal
+    }
   };
 
   const fetchAllReports = async (year: number) => {
@@ -372,128 +431,253 @@ export default function CarbonCreditPage() {
             </div>
           ) : (
             <div ref={dropdownRef} className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
-              <div className="px-6 py-3 grid grid-cols-12 gap-4 border-b border-gray-100">
-                <span className="col-span-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Company</span>
-                <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sector</span>
-                <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Credits</span>
-                <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">30d</span>
+              {/* Header row with year selector */}
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                  {companies.length} companies
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Consumption year</span>
+                  <select
+                    value={companiesYear}
+                    onChange={(e) => {
+                      setCompaniesYear(Number(e.target.value));
+                      setExpandedHistoryId(null);
+                      setCompanyHistory({});
+                    }}
+                    className="px-3 py-1.5 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
+                  >
+                    {[0, 1, 2, 3].map((offset) => {
+                      const y = currentYear - offset;
+                      return <option key={y} value={y}>{y}</option>;
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              <div className="px-6 py-3 grid grid-cols-12 gap-4 border-b border-gray-100 bg-gray-50/40">
+                <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Company</span>
+                <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sector</span>
+                <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Current Credits</span>
+                <span className="col-span-2 text-[10px] font-bold text-[#F28C28] uppercase tracking-wider text-right">
+                  {companiesYear} Consumption
+                </span>
+                <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">History</span>
                 <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider pl-1">Change Sector</span>
               </div>
+
               <div className="divide-y divide-gray-50">
                 {[...companies].sort((a, b) => (a.companyName ?? a.email).localeCompare(b.companyName ?? b.email)).map(company => {
-                  const change = Number(company.monthlyChange);
                   const isOpen = openDropdown === company.companyId;
                   const isAssigning = assigningCompanyId === company.companyId;
+                  const isHistoryOpen = expandedHistoryId === company.companyId;
+                  const report = companiesReports.find((r) => r.companyId === company.companyId);
+                  const consumption = report ? Number(report.verifiedEmissions) : null;
+                  const history = companyHistory[company.companyId];
+
                   return (
-                    <div
-                      key={company.companyId}
-                      className="px-6 py-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-50/40 transition-colors"
-                    >
-                      {/* Company */}
-                      <div className="col-span-4 flex items-center gap-3 min-w-0">
-                        <div className="w-9 h-9 shrink-0 rounded-xl bg-[#005A8C]/10 flex items-center justify-center">
-                          <Building2 size={15} className="text-[#005A8C]" />
+                    <div key={company.companyId}>
+                      <div className="px-6 py-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-50/40 transition-colors">
+                        {/* Company */}
+                        <div className="col-span-3 flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 shrink-0 rounded-xl bg-[#005A8C]/10 flex items-center justify-center">
+                            <Building2 size={15} className="text-[#005A8C]" />
+                          </div>
+                          <div className="min-w-0">
+                            {company.companyName ? (
+                              <>
+                                <p className="text-sm font-black text-gray-800 truncate">{company.companyName}</p>
+                                <p className="text-[10px] text-gray-400 font-semibold truncate">{company.email}</p>
+                              </>
+                            ) : (
+                              <p className="text-sm font-bold text-gray-700 truncate">{company.email}</p>
+                            )}
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          {company.companyName ? (
+
+                        {/* Sector */}
+                        <div className="col-span-2 flex items-center">
+                          {company.sectorName ? (
+                            <span className="text-xs font-bold text-[#009B9E] bg-[#009B9E]/8 px-2.5 py-1 rounded-lg truncate block w-fit max-w-full">
+                              {company.sectorName}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-300 font-semibold">—</span>
+                          )}
+                        </div>
+
+                        {/* Current Credits */}
+                        <div className="col-span-2 text-right">
+                          <p className="text-sm font-black text-gray-800">
+                            {Number(company.currentCredits).toLocaleString()}
+                          </p>
+                          <p className="text-[10px] text-gray-400 font-semibold">tCO₂e</p>
+                        </div>
+
+                        {/* Consumption for selected year */}
+                        <div className="col-span-2 text-right">
+                          {loadingCompaniesReports ? (
+                            <Loader2 size={14} className="text-gray-300 animate-spin ml-auto" />
+                          ) : consumption != null ? (
                             <>
-                              <p className="text-sm font-black text-gray-800 truncate">{company.companyName}</p>
-                              <p className="text-[10px] text-gray-400 font-semibold truncate">{company.email}</p>
+                              <p className="text-sm font-black text-[#F28C28]">
+                                {consumption.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                              </p>
+                              <p className="text-[10px] text-gray-400 font-semibold">tCO₂e</p>
                             </>
                           ) : (
-                            <p className="text-sm font-bold text-gray-700 truncate">{company.email}</p>
+                            <span className="text-xs font-bold text-gray-300">
+                              {companiesYear >= currentYear ? "Pending" : "No report"}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* History toggle */}
+                        <div className="col-span-1 flex justify-center">
+                          <button
+                            onClick={() => {
+                              if (!isHistoryOpen) fetchCompanyHistory(company.companyId);
+                              setExpandedHistoryId(isHistoryOpen ? null : company.companyId);
+                            }}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              isHistoryOpen ? "bg-[#005A8C]/10 text-[#005A8C]" : "hover:bg-gray-100 text-gray-400"
+                            }`}
+                            title="View consumption history"
+                          >
+                            <BarChart3 size={15} />
+                          </button>
+                        </div>
+
+                        {/* Sector assignment dropdown */}
+                        <div className="col-span-2 relative">
+                          <button
+                            disabled={isAssigning}
+                            onClick={() => setOpenDropdown(isOpen ? null : company.companyId)}
+                            className={`w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border transition-all cursor-pointer text-left ${
+                              company.sectorId
+                                ? "border-[#009B9E]/40 bg-[#009B9E]/5 hover:border-[#009B9E]/60"
+                                : "border-gray-200 bg-gray-50 hover:border-gray-300"
+                            } ${isAssigning ? "opacity-50 cursor-wait" : ""} ${isOpen ? "ring-2 ring-[#009B9E]/20 border-[#009B9E]/60" : ""}`}
+                          >
+                            <span className={`text-xs font-bold truncate ${company.sectorId ? "text-[#009B9E]" : "text-gray-400"}`}>
+                              {isAssigning ? "Saving..." : company.sectorId ? "Change" : "Assign"}
+                            </span>
+                            {isAssigning
+                              ? <Loader2 size={13} className="text-gray-400 animate-spin shrink-0" />
+                              : <ChevronDown size={13} className={`shrink-0 transition-transform text-gray-400 ${isOpen ? "rotate-180" : ""}`} />
+                            }
+                          </button>
+
+                          {isOpen && (
+                            <div className="absolute right-0 top-full mt-1.5 w-56 bg-white border border-gray-200 rounded-2xl shadow-xl z-20 overflow-hidden">
+                              <div className="px-3 pt-3 pb-1">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Assign Sector</p>
+                              </div>
+                              <div className="px-2 pb-2 max-h-56 overflow-y-auto">
+                                <button
+                                  onClick={() => { assignSector(company.companyId, null); setOpenDropdown(null); }}
+                                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                                    !company.sectorId ? "bg-gray-100 text-gray-600" : "text-gray-400 hover:bg-gray-50"
+                                  }`}
+                                >
+                                  <span>Unassigned</span>
+                                  {!company.sectorId && <Check size={12} className="text-gray-500" />}
+                                </button>
+                                {sortedSectors.map(s => (
+                                  <button
+                                    key={s.id}
+                                    onClick={() => { assignSector(company.companyId, s.id!); setOpenDropdown(null); }}
+                                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                                      company.sectorId === s.id
+                                        ? "bg-[#009B9E]/10 text-[#009B9E]"
+                                        : "text-gray-700 hover:bg-gray-50"
+                                    }`}
+                                  >
+                                    <span>{s.name}</span>
+                                    {company.sectorId === s.id && <Check size={12} className="text-[#009B9E]" />}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                           )}
                         </div>
                       </div>
 
-                      {/* Sector display */}
-                      <div className="col-span-3 flex items-center">
-                        {company.sectorName ? (
-                          <span className="text-xs font-bold text-[#009B9E] bg-[#009B9E]/8 px-2.5 py-1 rounded-lg truncate block w-fit max-w-full">
-                            {company.sectorName}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-300 font-semibold">—</span>
-                        )}
-                      </div>
-
-                      {/* Credits */}
-                      <div className="col-span-2 text-right">
-                        <span className="text-sm font-black text-gray-800">
-                          {Number(company.currentCredits).toLocaleString()}
-                        </span>
-                        <span className="text-[10px] text-gray-400 font-semibold ml-1">tCO₂e</span>
-                      </div>
-
-                      {/* Monthly change */}
-                      <div className="col-span-1 flex items-center justify-end gap-1">
-                        {change === 0 ? (
-                          <span className="text-sm font-bold text-gray-400">—</span>
-                        ) : (
-                          <>
-                            {change > 0
-                              ? <TrendingUp size={12} className="text-emerald-500" />
-                              : <TrendingDown size={12} className="text-red-500" />}
-                            <span className={`text-xs font-black ${change > 0 ? "text-emerald-500" : "text-red-500"}`}>
-                              {change > 0 ? "+" : ""}{change.toLocaleString()}
+                      {/* Inline history panel */}
+                      {isHistoryOpen && (
+                        <div className="mx-6 mb-4 border border-[#005A8C]/10 rounded-2xl overflow-hidden bg-[#005A8C]/3">
+                          <div className="px-5 py-3 border-b border-[#005A8C]/10 flex items-center gap-2 bg-[#005A8C]/5">
+                            <BarChart3 size={13} className="text-[#005A8C]" />
+                            <span className="text-xs font-black text-[#005A8C] uppercase tracking-wider">
+                              {company.companyName ?? company.email} — Consumption History
                             </span>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Sector assignment — custom dropdown */}
-                      <div className="col-span-2 relative">
-                        <button
-                          disabled={isAssigning}
-                          onClick={() => setOpenDropdown(isOpen ? null : company.companyId)}
-                          className={`w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border transition-all cursor-pointer text-left ${
-                            company.sectorId
-                              ? "border-[#009B9E]/40 bg-[#009B9E]/5 hover:border-[#009B9E]/60"
-                              : "border-gray-200 bg-gray-50 hover:border-gray-300"
-                          } ${isAssigning ? "opacity-50 cursor-wait" : ""} ${isOpen ? "ring-2 ring-[#009B9E]/20 border-[#009B9E]/60" : ""}`}
-                        >
-                          <span className={`text-xs font-bold truncate ${company.sectorId ? "text-[#009B9E]" : "text-gray-400"}`}>
-                            {isAssigning ? "Saving..." : company.sectorId ? "Change" : "Assign"}
-                          </span>
-                          {isAssigning
-                            ? <Loader2 size={13} className="text-gray-400 animate-spin shrink-0" />
-                            : <ChevronDown size={13} className={`shrink-0 transition-transform text-gray-400 ${isOpen ? "rotate-180" : ""}`} />
-                          }
-                        </button>
-
-                        {isOpen && (
-                          <div className="absolute right-0 top-full mt-1.5 w-56 bg-white border border-gray-200 rounded-2xl shadow-xl z-20 overflow-hidden">
-                            <div className="px-3 pt-3 pb-1">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Assign Sector</p>
-                            </div>
-                            <div className="px-2 pb-2 max-h-56 overflow-y-auto">
-                              <button
-                                onClick={() => { assignSector(company.companyId, null); setOpenDropdown(null); }}
-                                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                                  !company.sectorId ? "bg-gray-100 text-gray-600" : "text-gray-400 hover:bg-gray-50"
-                                }`}
-                              >
-                                <span>Unassigned</span>
-                                {!company.sectorId && <Check size={12} className="text-gray-500" />}
-                              </button>
-                              {sortedSectors.map(s => (
-                                <button
-                                  key={s.id}
-                                  onClick={() => { assignSector(company.companyId, s.id!); setOpenDropdown(null); }}
-                                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                                    company.sectorId === s.id
-                                      ? "bg-[#009B9E]/10 text-[#009B9E]"
-                                      : "text-gray-700 hover:bg-gray-50"
-                                  }`}
-                                >
-                                  <span>{s.name}</span>
-                                  {company.sectorId === s.id && <Check size={12} className="text-[#009B9E]" />}
-                                </button>
-                              ))}
-                            </div>
                           </div>
-                        )}
-                      </div>
+                          {!history ? (
+                            <div className="p-5 flex items-center justify-center gap-2">
+                              <Loader2 size={14} className="animate-spin text-gray-400" />
+                              <p className="text-xs font-bold text-gray-400">Loading...</p>
+                            </div>
+                          ) : history.length === 0 ? (
+                            <div className="p-5 text-center">
+                              <p className="text-xs font-bold text-gray-400">No historical consumption data found.</p>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="px-5 py-2 grid grid-cols-6 gap-3 border-b border-[#005A8C]/10">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Year</span>
+                                <span className="text-[10px] font-bold text-[#F28C28] uppercase tracking-wider text-right">Consumption (tCO₂e)</span>
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Activity Level</span>
+                                <span className="text-[10px] font-bold text-[#009B9E] uppercase tracking-wider text-right">Intensity</span>
+                                <span className="text-[10px] font-bold text-[#005A8C] uppercase tracking-wider text-right">Sector Avg</span>
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Submitted</span>
+                              </div>
+                              <div className="divide-y divide-[#005A8C]/5">
+                                {[...history].sort((a, b) => b.year - a.year).map((h) => {
+                                  const intensity = Number(h.activityLevel) > 0
+                                    ? Number(h.verifiedEmissions) / Number(h.activityLevel)
+                                    : null;
+                                  const vsAvg = intensity != null && h.benchmarkIntensity != null
+                                    ? intensity - h.benchmarkIntensity
+                                    : null;
+                                  return (
+                                    <div key={h.year} className="px-5 py-3 grid grid-cols-6 gap-3 items-center">
+                                      <span className="text-sm font-black text-gray-700">{h.year}</span>
+                                      <span className="text-sm font-black text-[#F28C28] text-right tabular-nums">
+                                        {Number(h.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                                      </span>
+                                      <span className="text-sm font-bold text-gray-500 text-right tabular-nums">
+                                        {Number(h.activityLevel).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                                      </span>
+                                      <span className="text-sm font-bold text-[#009B9E] text-right tabular-nums">
+                                        {intensity != null ? intensity.toFixed(4) : "—"}
+                                      </span>
+                                      <div className="text-right">
+                                        {h.benchmarkIntensity != null ? (
+                                          <>
+                                            <p className="text-sm font-bold text-[#005A8C] tabular-nums">
+                                              {h.benchmarkIntensity.toFixed(4)}
+                                            </p>
+                                            {vsAvg != null && (
+                                              <p className={`text-[10px] font-bold tabular-nums ${vsAvg > 0 ? "text-red-500" : "text-emerald-500"}`}>
+                                                {vsAvg > 0 ? "+" : ""}{vsAvg.toFixed(4)}
+                                              </p>
+                                            )}
+                                          </>
+                                        ) : (
+                                          <span className="text-xs font-bold text-gray-300">—</span>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] font-semibold text-gray-400 text-right">
+                                        {new Date(h.submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -505,6 +689,66 @@ export default function CarbonCreditPage() {
         {/* ── Allocations Tab ── */}
         {activeTab === "allocations" && (
           <div className="flex flex-col gap-6">
+
+            {/* Formula Reference Card */}
+            <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
+                <FileText size={15} className="text-[#005A8C]" />
+                <span className="text-sm font-black text-[#005A8C]">China ETS Allocation Formula</span>
+              </div>
+              <div className="px-6 py-5 grid grid-cols-3 gap-6">
+
+                {/* Step 1 */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Step 1 — Sector Benchmark</p>
+                  <code className="text-xs font-mono text-[#009B9E] bg-[#009B9E]/6 px-3 py-2 rounded-xl leading-relaxed">
+                    benchmark = Σ emissions / Σ activity
+                  </code>
+                  <p className="text-[10px] text-gray-400 font-semibold leading-relaxed">
+                    Sum all verified emissions divided by sum of all activity levels across companies in the same sector.
+                  </p>
+                </div>
+
+                {/* Step 2 */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Step 2 — Deviation</p>
+                  <code className="text-xs font-mono text-[#009B9E] bg-[#009B9E]/6 px-3 py-2 rounded-xl leading-relaxed">
+                    intensity = emissions / activity{"\n"}
+                    deviation = (intensity − benchmark) / benchmark
+                  </code>
+                  <p className="text-[10px] text-gray-400 font-semibold leading-relaxed">
+                    Negative deviation = cleaner than sector average. Positive = dirtier.
+                  </p>
+                </div>
+
+                {/* Step 3 */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Step 3 — Allocation</p>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-start gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-xl">
+                      <span className="text-[10px] font-black text-emerald-600 uppercase tracking-wider shrink-0 mt-0.5">Best</span>
+                      <code className="text-[10px] font-mono text-emerald-700">
+                        deviation &lt; −20% → emissions × 1.03
+                      </code>
+                    </div>
+                    <div className="flex items-start gap-2 px-3 py-1.5 bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-xl">
+                      <span className="text-[10px] font-black text-[#005A8C] uppercase tracking-wider shrink-0 mt-0.5">Mid</span>
+                      <code className="text-[10px] font-mono text-[#005A8C]">
+                        |deviation| ≤ 20% → emissions × (1 − deviation × 0.15)
+                      </code>
+                    </div>
+                    <div className="flex items-start gap-2 px-3 py-1.5 bg-red-50 border border-red-100 rounded-xl">
+                      <span className="text-[10px] font-black text-red-500 uppercase tracking-wider shrink-0 mt-0.5">Worst</span>
+                      <code className="text-[10px] font-mono text-red-600">
+                        deviation &gt; 20% → emissions × 0.97
+                      </code>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
             {/* Year Selector + Controls */}
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
