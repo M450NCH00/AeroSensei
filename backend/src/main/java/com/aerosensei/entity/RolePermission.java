@@ -17,6 +17,8 @@ public class RolePermission {
     private Boolean canEditMetadata;
     private Boolean canManageUsers;
     private Boolean canDeleteRecords;
+    private Boolean canAddSensors;
+    private Boolean canDeleteSensors;
 
     // Getters and Setters for all fields...
     public String getRoleName() { return roleName; }
@@ -39,4 +41,10 @@ public class RolePermission {
 
     public Boolean getCanDeleteRecords() { return canDeleteRecords; }
     public void setCanDeleteRecords(Boolean canDeleteRecords) { this.canDeleteRecords = canDeleteRecords; }
+
+    public Boolean getCanAddSensors() { return canAddSensors; }
+    public void setCanAddSensors(Boolean canAddSensors) { this.canAddSensors = canAddSensors; }
+
+    public Boolean getCanDeleteSensors() { return canDeleteSensors; }
+    public void setCanDeleteSensors(Boolean canDeleteSensors) { this.canDeleteSensors = canDeleteSensors; }
 }
