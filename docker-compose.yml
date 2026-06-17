@@ -135,22 +135,6 @@ services:
       retries: 5
       start_period: 20s
 
-  db-seeder:
-    build:
-      context: ./postgresql/script
-      dockerfile: Dockerfile
-    container_name: db-seeder
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: on-failure
-    environment:
-      - DB_HOST=postgresdb
-      - DB_PORT=5432
-      - DB_NAME=postgresdb
-      - DB_USER=admin
-      - DB_PASSWORD=ChangeThisPassword123!
-
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: pgadmin

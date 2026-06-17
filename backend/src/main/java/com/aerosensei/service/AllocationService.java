@@ -80,6 +80,12 @@ public class AllocationService {
 
     @Transactional
     public List<AllocationResponse> calculateAllocations(Integer year) {
+        // The government may allocate carbon credits only once per year. Re-running
+        // would add the allocation amount to every company's balance a second time.
+        if (allocationRepo.existsByYear(year)) {
+            throw new IllegalStateException("Carbon credits have already been allocated for year: " + year);
+        }
+
         List<EmissionReport> reports = reportRepo.findByYear(year);
         if (reports.isEmpty()) {
             throw new IllegalStateException("No emission reports found for year: " + year);
@@ -136,20 +142,11 @@ public class AllocationService {
                     allocationAmount = emissions.multiply(new BigDecimal("1.03")).setScale(4, RoundingMode.HALF_UP);
                 }
 
-                // Upsert allocation record
-                Optional<CarbonAllocation> existingAlloc = allocationRepo
-                        .findByCompanyId(company.getId()).stream()
-                        .filter(a -> a.getYear().equals(year))
-                        .findFirst();
-
-                CarbonAllocation alloc;
-                if (existingAlloc.isPresent()) {
-                    alloc = existingAlloc.get();
-                } else {
-                    alloc = new CarbonAllocation();
-                    alloc.setCompany(company);
-                    alloc.setYear(year);
-                }
+                // Create allocation record (guaranteed not to exist: allocation
+                // runs at most once per year, enforced above).
+                CarbonAllocation alloc = new CarbonAllocation();
+                alloc.setCompany(company);
+                alloc.setYear(year);
                 alloc.setVerifiedEmissions(emissions);
                 alloc.setActivityLevel(activity);
                 alloc.setIntensity(intensity.setScale(6, RoundingMode.HALF_UP));

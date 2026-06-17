@@ -8,20 +8,59 @@ CREATE TABLE emission_reports (
     UNIQUE(company_id, year)
 );
 
-INSERT INTO emission_reports (company_id, year, activity_level, verified_emissions, submitted_at) VALUES
-  -- Company One (Service)
-  (1, 2022, 42000.00,   7800.00, '2023-01-18 10:00:00'),
-  (1, 2023, 45000.00,   8200.00, '2024-01-15 10:30:00'),
-  (1, 2024, 47500.00,   8750.00, '2025-01-12 09:15:00'),
-  (1, 2025, 49000.00,   9100.00, '2026-01-10 11:00:00'),
-  -- Company Two (Steel)
-  (2, 2022, 68000.00, 125800.00, '2023-01-20 14:00:00'),
-  (2, 2023, 72000.00, 133200.00, '2024-01-18 14:00:00'),
-  (2, 2024, 76000.00, 140600.00, '2025-01-14 13:30:00'),
-  (2, 2025, 78500.00, 145225.00, '2026-01-08 10:45:00'),
-  -- Company Three (Power Generation)
-  (3, 2022,  98000.00, 160000.00, '2023-01-22 09:00:00'),
-  (3, 2023, 105000.00, 172000.00, '2024-01-20 08:00:00'),
-  (3, 2024, 112000.00, 185000.00, '2025-01-16 08:30:00'),
-  (3, 2025, 117000.00, 194500.00, '2026-01-11 09:00:00')
+-- Seed an emission report for every existing company across 2022-2025.
+-- Figures are derived from each company's carbon-credit allocation and a
+-- sector-specific emission intensity, with ~5% year-on-year growth, so the
+-- data scales automatically to whatever companies are present.
+--
+-- To avoid every company in a sector landing on an identical intensity
+-- (which would make the benchmark deviation zero for everyone), the activity
+-- level and emissions are perturbed independently:
+--   * a deterministic per-company intensity factor (~0.78..1.22) shifts each
+--     company above or below its sector benchmark, and
+--   * a small per-company/per-year wobble adds mild noise.
+-- Both are derived from the company id so the data is stable across re-runs.
+INSERT INTO emission_reports (company_id, year, activity_level, verified_emissions, submitted_at)
+SELECT
+    c.id,
+    y.year,
+    -- Underlying activity level (production / throughput proxy), growing yearly,
+    -- with a mild per-company/per-year wobble so it isn't perfectly smooth.
+    ROUND((
+        c.carbon_credits * 0.9
+        * (1 + (y.year - 2022) * 0.05)
+        * (1 + 0.03 * cos(c.id * 1.3 + y.year))
+    )::numeric, 4) AS activity_level,
+    -- Verified emissions (tCO2e) = scaled activity * sector emission intensity,
+    -- multiplied by a per-company intensity factor so companies deviate from
+    -- the sector benchmark instead of all sharing the same intensity.
+    ROUND((
+        c.carbon_credits
+        * (1 + (y.year - 2022) * 0.05)
+        * CASE s.name
+            WHEN 'Materials'          THEN 4.20
+            WHEN 'Energy'             THEN 3.80
+            WHEN 'Transportation'     THEN 3.10
+            WHEN 'Automotive'         THEN 2.40
+            WHEN 'Industrials'        THEN 2.00
+            WHEN 'Conglomerate'       THEN 1.60
+            WHEN 'Consumer Staples'   THEN 1.30
+            WHEN 'Real Estate'        THEN 1.10
+            WHEN 'Retail'             THEN 0.80
+            WHEN 'Technology'         THEN 0.45
+            WHEN 'Banking'            THEN 0.30
+            WHEN 'Financial Services' THEN 0.28
+            WHEN 'Insurance'          THEN 0.26
+            ELSE 1.00
+          END
+        -- per-company intensity factor: 0.78 .. 1.22, spread across companies
+        * (0.78 + ((c.id * 7) % 23) * 0.02)
+        -- small per-company/per-year wobble (~±4%)
+        * (1 + 0.04 * sin(c.id + y.year))
+    )::numeric, 4) AS verified_emissions,
+    -- Reports submitted in January of the following year
+    make_timestamp(y.year + 1, 1, 15, 10, 0, 0) AS submitted_at
+FROM companies c
+JOIN sectors s ON s.id = c.sector_id
+CROSS JOIN generate_series(2022, 2025) AS y(year)
 ON CONFLICT (company_id, year) DO NOTHING;
