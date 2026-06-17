@@ -117,10 +117,11 @@ services:
       - ./postgresql/query/role_permissions_initialization.sql:/docker-entrypoint-initdb.d/1_user_roles_initialization.sql
       - ./postgresql/query/user_registry_initialization.sql:/docker-entrypoint-initdb.d/2_user_registry_initialization.sql
       - ./postgresql/query/company_registry_initialization.sql:/docker-entrypoint-initdb.d/3_company_registry_initialization.sql
-      - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/4_sensor_registry_initialization.sql
-      - ./postgresql/query/alert_registry_initialization.sql:/docker-entrypoint-initdb.d/5_alert_registry_initialization.sql
-      - ./postgresql/query/carbon_transactions_initialization.sql:/docker-entrypoint-initdb.d/6_carbon_transactions_initialization.sql
-      - ./postgresql/query/carbon_listings_initialization.sql:/docker-entrypoint-initdb.d/7_carbon_listings_initialization.sql
+      - ./postgresql/query/company_site_initialization.sql:/docker-entrypoint-initdb.d/4_company_site_initialization.sql
+      - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/5_sensor_registry_initialization.sql
+      - ./postgresql/query/alert_registry_initialization.sql:/docker-entrypoint-initdb.d/6_alert_registry_initialization.sql
+      - ./postgresql/query/carbon_transactions_initialization.sql:/docker-entrypoint-initdb.d/7_carbon_transactions_initialization.sql
+      - ./postgresql/query/carbon_listings_initialization.sql:/docker-entrypoint-initdb.d/8_carbon_listings_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!

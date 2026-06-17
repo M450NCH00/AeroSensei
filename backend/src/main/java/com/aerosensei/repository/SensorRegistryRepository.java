@@ -29,6 +29,34 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             @Param("maxLon") BigDecimal maxLon
     );
 
-    List<SensorRegistry> findByLocationNameContainingIgnoreCase(String locationName);
+    //use to fetch the sensors from the company of the user
+    @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
+            "FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id " +
+            "JOIN users u ON c.user_id = u.id " +
+            "WHERE u.email = :email", nativeQuery = true)
+    List<Object[]> findCompanySensorMetadataByEmail(@Param("email") String email);
+
+    //use to fetch sensor by company and site name
+    @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
+            "FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id " +
+            "JOIN users u ON c.user_id = u.id " +
+            "WHERE u.email = :email AND cs.id = :siteId", nativeQuery = true)
+    List<Object[]> findSensorsBySiteAndEmail(@Param("email") String email, @Param("siteId") Integer siteId);
+
+    // ==========================================
+    // GOVERNMENT QUERY (NO EMAIL CHECK)
+    // ==========================================
+    @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
+            "FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id " +
+            "WHERE cs.id = :siteId", nativeQuery = true)
+    List<Object[]> findAllSensorsBySiteId(@Param("siteId") Integer siteId);
+
+    //List<SensorRegistry> findByLocationNameContainingIgnoreCase(String locationName);
 }
 
