@@ -15,18 +15,17 @@ interface ClusterAverageDTO {
   sensorCount: number;
 }
 
-interface ViewportBounds {
+// 1. UPDATED INTERFACE: Added 'zoom' to track the map's zoom level
+interface MapViewState {
   minLat: number;
   maxLat: number;
   minLon: number;
   maxLon: number;
+  zoom: number; 
 }
 
-// Dynamically generate the icon based on status AND cluster size
 const createCustomIcon = (status: "good" | "warning", count: number) => {
   const color = status === "good" ? "#009B9E" : "#F28C28";
-  
-  // Make the dot bigger if it represents multiple sensors
   const isCluster = count > 1;
   const size = isCluster ? 32 : 18; 
   const innerText = isCluster ? `<span style="color: white; font-size: 11px; font-weight: 900;">${count}</span>` : "";
@@ -54,51 +53,53 @@ const determineStatus = (pm25: number): "good" | "warning" => {
   return pm25 > 35.0 ? "warning" : "good";
 };
 
-// The invisible tracker that sends dynamic bounds to your friend's grid logic
-function MapViewportTracker({ onBoundsChange }: { onBoundsChange: (bounds: ViewportBounds) => void }) {
+// 2. UPDATED TRACKER: Captures map.getZoom() alongside the bounds
+function MapViewportTracker({ onMapChange }: { onMapChange: (state: MapViewState) => void }) {
   const map = useMapEvents({
     moveend() {
-      const bounds = map.getBounds();
-      onBoundsChange({
+      const bounds = map.getBounds().pad(0.1);
+      onMapChange({
         minLat: bounds.getSouthWest().lat,
         maxLat: bounds.getNorthEast().lat,
         minLon: bounds.getSouthWest().lng,
         maxLon: bounds.getNorthEast().lng,
+        zoom: map.getZoom(), // Captures current zoom level
       });
     },
   });
 
   useEffect(() => {
-    const initialBounds = map.getBounds();
-    onBoundsChange({
+    const initialBounds = map.getBounds().pad(0.1);
+    onMapChange({
       minLat: initialBounds.getSouthWest().lat,
       maxLat: initialBounds.getNorthEast().lat,
       minLon: initialBounds.getSouthWest().lng,
       maxLon: initialBounds.getNorthEast().lng,
+      zoom: map.getZoom(), // Captures initial zoom level
     });
-  }, [map, onBoundsChange]);
+  }, [map, onMapChange]);
 
   return null;
 }
 
 export default function AeroMap() {
   const [clusters, setClusters] = useState<ClusterAverageDTO[]>([]);
-  const [bounds, setBounds] = useState<ViewportBounds | null>(null);
+  // Renamed from 'bounds' to 'mapState' since it now holds bounds + zoom
+  const [mapState, setMapState] = useState<MapViewState | null>(null);
 
   useEffect(() => {
-    if (!bounds) return;
+    if (!mapState) return;
 
     const fetchClusterData = async () => {
       try {
-        // Hits: GET /api/sensors/area/cluster
+        // 3. UPDATED API CALL: Sends the zoom parameter instead of rows/cols
         const response = await axiosInstance.get<ClusterAverageDTO[]>("/sensors/area/cluster", {
           params: {
-            minLat: bounds.minLat,
-            maxLat: bounds.maxLat,
-            minLon: bounds.minLon,
-            maxLon: bounds.maxLon,
-            rows: 12, // Sends a 12x12 grid resolution to the backend
-            cols: 12,
+            minLat: mapState.minLat,
+            maxLat: mapState.maxLat,
+            minLon: mapState.minLon,
+            maxLon: mapState.maxLon,
+            zoom: mapState.zoom, // Sends the dynamic zoom level to backend
           },
         });
         setClusters(response.data);
@@ -108,7 +109,7 @@ export default function AeroMap() {
     };
 
     fetchClusterData();
-  }, [bounds]);
+  }, [mapState]);
 
   return (
     <div className="w-full h-full rounded-3xl overflow-hidden shadow-lg border border-gray-200 z-0">
@@ -124,7 +125,8 @@ export default function AeroMap() {
           attribution='&copy; <a href="https://carto.com/">carto.com</a>'
         />
 
-        <MapViewportTracker onBoundsChange={setBounds} />
+        {/* Pass down the state setter */}
+        <MapViewportTracker onMapChange={setMapState} />
 
         {clusters.map((cluster, index) => {
           const status = determineStatus(cluster.avgPm25);

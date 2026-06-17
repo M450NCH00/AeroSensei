@@ -85,19 +85,6 @@ public class SensorController {
 //        return ResponseEntity.ok(areaData);
 //    }
 //
-//    // URL: GET http://localhost:8080/api/sensors/area/cluster?minLat=...&maxLat=...&minLon=...&maxLon=...&rows=4&cols=4
-//    @GetMapping("/area/cluster")
-//    public ResponseEntity<List<ClusterAverageDTO>> getClusteredArea(
-//            @RequestParam BigDecimal minLat,
-//            @RequestParam BigDecimal maxLat,
-//            @RequestParam BigDecimal minLon,
-//            @RequestParam BigDecimal maxLon,
-//            @RequestParam(defaultValue = "4") int rows,
-//            @RequestParam(defaultValue = "4") int cols) {
-//
-//        List<ClusterAverageDTO> clusteredData = sensorService.getClusteredAveragesInArea(minLat, maxLat, minLon, maxLon, rows, cols);
-//        return ResponseEntity.ok(clusteredData);
-//    }
 //
 //    // URL: GET http://localhost:8081/api/sensors/search?location=Hanoi
 //    @GetMapping("/search")
@@ -135,4 +122,17 @@ public class SensorController {
 //            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
 //        }
 //    }
+  
+    // URL: GET http://localhost:8080/api/sensors/area/cluster?minLat=...&maxLat=...&minLon=...&maxLon=...&rows=4&cols=4
+    @GetMapping("/area/cluster")
+    public ResponseEntity<List<ClusterAverageDTO>> getClusteredArea(
+            @RequestParam BigDecimal minLat,
+            @RequestParam BigDecimal maxLat,
+            @RequestParam BigDecimal minLon,
+            @RequestParam BigDecimal maxLon,
+            @RequestParam(defaultValue = "12") int zoom) {
+
+        List<ClusterAverageDTO> clusteredData = sensorService.getClusteredAveragesInArea(minLat, maxLat, minLon, maxLon, zoom);
+        return ResponseEntity.ok(clusteredData);
+    }
 }

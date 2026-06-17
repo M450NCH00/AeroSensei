@@ -34,6 +34,9 @@ public class SensorRegistry {
     @Column(nullable = false, precision = 11, scale = 8)
     private BigDecimal longitude;
 
+    @Column(name = "geohash", length = 12)
+    private String geohash;
+
     @Column(length = 20)
     private String status;
 
@@ -64,6 +67,9 @@ public class SensorRegistry {
 
     public BigDecimal getLongitude() { return longitude; }
     public void setLongitude(BigDecimal longitude) { this.longitude = longitude; }
+
+    public String getGeohash() { return geohash; }
+    public void setGeohash(String geohash) { this.geohash = geohash; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

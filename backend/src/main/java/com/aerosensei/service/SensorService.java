@@ -28,6 +28,8 @@ import com.aerosensei.dto.CompanyDashboardSensorDTO;
 
 
 
+import com.github.davidmoten.geo.GeoHash;
+
 @Service
 public class SensorService {
 
@@ -132,7 +134,7 @@ public class SensorService {
         redisTemplate.opsForValue().set(liveCacheKey, sensor, 5, TimeUnit.MINUTES);
     }
 
-// ... inside SensorService class ...
+    // ... inside SensorService class ...
 
     // ==========================================
     // GET SENSORS FOR A SPECIFIC SITE (ROLE-AWARE) - only for government
@@ -163,7 +165,7 @@ public class SensorService {
 
             if (results.isEmpty()) {
                 throw new RuntimeException("Site ID " + siteId + " not found or access denied.");
-            }
+            }    
 
             siteSensors = new ArrayList<>();
             for (Object[] row : results) {
@@ -184,8 +186,99 @@ public class SensorService {
         for (CompanyDashboardSensorDTO sensor : siteSensors) {
             fetchLiveStatus(sensor);
         }
-
         return siteSensors;
+    }
+
+    /**
+     * Maps frontend map zoom levels to geohash precision levels.
+     * Tweak these ranges if you want clusters to break apart sooner or later.
+     */
+    private int mapZoomToPrecision(int zoomLevel) {
+        if (zoomLevel <= 5) return 3;  // Zoomed out to continents
+        if (zoomLevel <= 8) return 4;  // Zoomed out to countries
+        if (zoomLevel <= 11) return 5; // Regions / Large Cities
+        if (zoomLevel <= 13) return 6; // City Districts
+        if (zoomLevel <= 15) return 7; // Neighborhoods
+        if (zoomLevel <= 17) return 8; // City Blocks
+        return 9;                      // Zoomed all the way in (Raw Sensors)
+    }
+
+    // clustering area sensor function
+    public List<ClusterAverageDTO> getClusteredAveragesInArea(
+            BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon, int zoom) {
+
+        // Translate the map zoom into a database string prefix length
+        int precision = mapZoomToPrecision(zoom);
+        logs.info("Clustering map area using zoom level {} -> geohash precision {}", zoom, precision);
+
+        // Get all sensors in the view (Fast DB query)
+        List<SensorRegistry> sensorsInArea = registryRepository.findSensorsWithinBounds(minLat, maxLat, minLon, maxLon);
+
+        if (sensorsInArea.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // Map to hold our grouped data. Key: "Geohash Prefix"
+        Map<String, List<SensorRegistry>> clusteredSensors = new HashMap<>();
+
+        // Assign each sensor to a cluster based on its geohash prefix
+        for (SensorRegistry sensor : sensorsInArea) {
+            // Safety check: Don't substring further than the actual geohash length
+            int actualPrecision = Math.min(precision, sensor.getGeohash().length());
+            String prefix = sensor.getGeohash().substring(0, actualPrecision);
+
+            clusteredSensors.computeIfAbsent(prefix, k -> new ArrayList<>()).add(sensor);
+        }
+
+        // Calculate the centroids and averages for each cluster
+        List<ClusterAverageDTO> clusteredResults = new ArrayList<>();
+
+        for (Map.Entry<String, List<SensorRegistry>> entry : clusteredSensors.entrySet()) {
+            List<SensorRegistry> cellSensors = entry.getValue();
+
+            double sumLat = 0;
+            double sumLon = 0;
+            double sumPm25 = 0;
+            double sumPm10 = 0;
+            int validSensorCount = 0;
+
+            for (SensorRegistry sensor : cellSensors) {
+                // Get the ultra-fast cached real-time data
+                SensorAverageDTO liveData = getRealTimeAverage(sensor.getSensorId());
+
+                if (liveData.getPm25() == null) continue; // Skip offline sensors
+
+                // Sum up ACTUAL coordinates for the centroid calculation
+                sumLat += sensor.getLatitude().doubleValue();
+                sumLon += sensor.getLongitude().doubleValue();
+
+                sumPm25 += liveData.getPm25();
+                sumPm10 += liveData.getPm10();
+
+                validSensorCount++;
+            }
+
+            // If all sensors in this cluster were offline, skip it entirely
+            if (validSensorCount == 0) continue;
+
+            // CALCULATE CENTROIDS (Average of all valid sensor coordinates)
+            double centroidLat = sumLat / validSensorCount;
+            double centroidLon = sumLon / validSensorCount;
+
+            double avgPm25 = Math.round((sumPm25 / validSensorCount) * 100.0) / 100.0;
+            double avgPm10 = Math.round((sumPm10 / validSensorCount) * 100.0) / 100.0;
+
+            clusteredResults.add(new ClusterAverageDTO(
+                BigDecimal.valueOf(centroidLat),
+                BigDecimal.valueOf(centroidLon),
+                avgPm25,
+                avgPm10,
+                validSensorCount
+            ));
+        }
+
+        logs.info("Reduced {} raw sensors into {} clean map clusters.", sensorsInArea.size(), clusteredResults.size());
+        return clusteredResults;
     }
 
     // public List<SensorInfoDTO> getAllSensorsInfo() {
