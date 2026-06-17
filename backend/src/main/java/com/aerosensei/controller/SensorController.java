@@ -76,10 +76,9 @@ public class SensorController {
             @RequestParam BigDecimal maxLat,
             @RequestParam BigDecimal minLon,
             @RequestParam BigDecimal maxLon,
-            @RequestParam(defaultValue = "4") int rows,
-            @RequestParam(defaultValue = "4") int cols) {
+            @RequestParam(defaultValue = "12") int zoom) {
 
-        List<ClusterAverageDTO> clusteredData = sensorService.getClusteredAveragesInArea(minLat, maxLat, minLon, maxLon, rows, cols);
+        List<ClusterAverageDTO> clusteredData = sensorService.getClusteredAveragesInArea(minLat, maxLat, minLon, maxLon, zoom);
         return ResponseEntity.ok(clusteredData);
     }
     
