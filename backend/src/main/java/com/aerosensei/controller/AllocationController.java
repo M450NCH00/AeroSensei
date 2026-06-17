@@ -1,6 +1,8 @@
 package com.aerosensei.controller;
 
 import com.aerosensei.dto.AllocationResponse;
+import com.aerosensei.dto.ComplianceCycleResponse;
+import com.aerosensei.dto.CompliancePositionResponse;
 import com.aerosensei.dto.EmissionReportRequest;
 import com.aerosensei.dto.EmissionReportResponse;
 import com.aerosensei.service.AllocationService;
@@ -51,15 +53,53 @@ public class AllocationController {
         return ResponseEntity.ok(allocationService.getAllReports(year));
     }
 
-    /**
-     * Government triggers China ETS allocation calculation for a year.
-     */
-    @PostMapping("/calculate/{year}")
+    // ── Compliance cycle phase transitions (government actions) ───────────────
+
+    /** Step 1 — Pre-allocate 70% of prior-year emissions to every company. */
+    @PostMapping("/cycle/{year}/pre-allocate")
     @PreAuthorize("hasAnyRole('GOVERNMENT', 'ADMIN')")
-    public ResponseEntity<List<AllocationResponse>> calculateAllocations(
-            @PathVariable Integer year) {
-        List<AllocationResponse> results = allocationService.calculateAllocations(year);
-        return ResponseEntity.ok(results);
+    public ResponseEntity<ComplianceCycleResponse> preAllocate(@PathVariable Integer year) {
+        return ResponseEntity.ok(allocationService.preAllocate(year));
+    }
+
+    /** Step 2 — Open mid-year MRV reporting. */
+    @PostMapping("/cycle/{year}/open-midyear")
+    @PreAuthorize("hasAnyRole('GOVERNMENT', 'ADMIN')")
+    public ResponseEntity<ComplianceCycleResponse> openMidyear(@PathVariable Integer year) {
+        return ResponseEntity.ok(allocationService.openMidyear(year));
+    }
+
+    /** Step 3 — Open final (full-year) reporting. */
+    @PostMapping("/cycle/{year}/open-final")
+    @PreAuthorize("hasAnyRole('GOVERNMENT', 'ADMIN')")
+    public ResponseEntity<ComplianceCycleResponse> openFinal(@PathVariable Integer year) {
+        return ResponseEntity.ok(allocationService.openFinal(year));
+    }
+
+    /** Step 4 — Run the final allocation formula and adjust credits. */
+    @PostMapping("/cycle/{year}/finalize")
+    @PreAuthorize("hasAnyRole('GOVERNMENT', 'ADMIN')")
+    public ResponseEntity<ComplianceCycleResponse> finalizeAllocations(@PathVariable Integer year) {
+        return ResponseEntity.ok(allocationService.finalizeAllocations(year));
+    }
+
+    /** Step 5 — Deduct real emissions from balances; surplus carries forward. */
+    @PostMapping("/cycle/{year}/settle")
+    @PreAuthorize("hasAnyRole('GOVERNMENT', 'ADMIN')")
+    public ResponseEntity<ComplianceCycleResponse> settle(@PathVariable Integer year) {
+        return ResponseEntity.ok(allocationService.settle(year));
+    }
+
+    /** Current phase of a given compliance year. */
+    @GetMapping("/cycle/{year}")
+    public ResponseEntity<ComplianceCycleResponse> getCycle(@PathVariable Integer year) {
+        return ResponseEntity.ok(allocationService.getCycle(year));
+    }
+
+    /** All known compliance cycles, newest first. */
+    @GetMapping("/cycles")
+    public ResponseEntity<List<ComplianceCycleResponse>> getCycles() {
+        return ResponseEntity.ok(allocationService.getCycles());
     }
 
     /**
@@ -78,5 +118,15 @@ public class AllocationController {
     public ResponseEntity<List<AllocationResponse>> getMyAllocations(
             @AuthenticationPrincipal String email) {
         return ResponseEntity.ok(allocationService.getMyAllocations(email));
+    }
+
+    /**
+     * Company views its surplus/deficit position for a given year.
+     */
+    @GetMapping("/position/{year}")
+    public ResponseEntity<CompliancePositionResponse> getMyPosition(
+            @AuthenticationPrincipal String email,
+            @PathVariable Integer year) {
+        return ResponseEntity.ok(allocationService.getMyPosition(email, year));
     }
 }

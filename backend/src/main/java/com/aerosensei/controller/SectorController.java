@@ -10,6 +10,7 @@ import com.aerosensei.service.SectorService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -31,6 +32,7 @@ public class SectorController {
         d.setId(s.getId());
         d.setName(s.getName());
         d.setFormula(s.getFormula());
+        d.setActivityFormula(s.getActivityFormula());
         d.setDescription(s.getDescription());
         return d;
     }
@@ -46,12 +48,21 @@ public class SectorController {
         return sectorService.get(id).map(s -> ResponseEntity.ok(toDto(s))).orElse(ResponseEntity.notFound().build());
     }
 
+    /** The authenticated company's own sector (with its formulas), or 204 if unassigned. */
+    @GetMapping("/my")
+    public ResponseEntity<SectorDTO> getMySector(@AuthenticationPrincipal String email) {
+        return sectorService.getSectorForCompany(email)
+                .map(s -> ResponseEntity.ok(toDto(s)))
+                .orElse(ResponseEntity.noContent().build());
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('GOVERNMENT','ADMIN')")
     public ResponseEntity<SectorDTO> create(@RequestBody SectorDTO dto) {
         Sector s = new Sector();
         s.setName(dto.getName());
         s.setFormula(dto.getFormula());
+        s.setActivityFormula(dto.getActivityFormula());
         s.setDescription(dto.getDescription());
         Sector created = sectorService.create(s);
         return ResponseEntity.ok(toDto(created));
@@ -63,6 +74,7 @@ public class SectorController {
         Sector update = new Sector();
         update.setName(dto.getName());
         update.setFormula(dto.getFormula());
+        update.setActivityFormula(dto.getActivityFormula());
         update.setDescription(dto.getDescription());
         Sector s = sectorService.update(id, update);
         if (s == null) return ResponseEntity.notFound().build();
@@ -80,8 +92,9 @@ public class SectorController {
     @PreAuthorize("hasAnyRole('GOVERNMENT','ADMIN')")
     public ResponseEntity<EvaluateResponse> evaluate(@PathVariable Long id, @RequestBody EvaluateRequest req) {
         try {
-            double result = sectorService.evaluateFormula(id, req.getParameters());
-            return ResponseEntity.ok(new EvaluateResponse(result));
+            double emission = sectorService.evaluateFormula(id, req.getParameters());
+            Double activity = sectorService.evaluateActivityFormula(id, req.getParameters());
+            return ResponseEntity.ok(new EvaluateResponse(emission, activity));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {

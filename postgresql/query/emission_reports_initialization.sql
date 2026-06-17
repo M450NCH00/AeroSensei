@@ -2,10 +2,17 @@ CREATE TABLE emission_reports (
     id                 SERIAL PRIMARY KEY,
     company_id         INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     year               INTEGER NOT NULL,
+    -- 'MIDYEAR' = informational MRV report; 'FINAL' = full-year report that
+    -- drives the final allocation. A company may submit one of each per year.
+    report_type        VARCHAR(10) NOT NULL DEFAULT 'FINAL'
+                       CHECK (report_type IN ('MIDYEAR', 'FINAL')),
     activity_level     NUMERIC(15,4) NOT NULL,
     verified_emissions NUMERIC(15,4) NOT NULL,
+    -- Raw per-variable inputs the company submitted (JSON), from which
+    -- activity_level and verified_emissions were computed via the sector formulas.
+    parameters         TEXT,
     submitted_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(company_id, year)
+    UNIQUE(company_id, year, report_type)
 );
 
 -- Seed an emission report for every existing company across 2022-2025.
@@ -20,10 +27,11 @@ CREATE TABLE emission_reports (
 --     company above or below its sector benchmark, and
 --   * a small per-company/per-year wobble adds mild noise.
 -- Both are derived from the company id so the data is stable across re-runs.
-INSERT INTO emission_reports (company_id, year, activity_level, verified_emissions, submitted_at)
+INSERT INTO emission_reports (company_id, year, report_type, activity_level, verified_emissions, submitted_at)
 SELECT
     c.id,
     y.year,
+    'FINAL',
     -- Underlying activity level (production / throughput proxy), growing yearly,
     -- with a mild per-company/per-year wobble so it isn't perfectly smooth.
     ROUND((
@@ -63,4 +71,4 @@ SELECT
 FROM companies c
 JOIN sectors s ON s.id = c.sector_id
 CROSS JOIN generate_series(2022, 2025) AS y(year)
-ON CONFLICT (company_id, year) DO NOTHING;
+ON CONFLICT (company_id, year, report_type) DO NOTHING;

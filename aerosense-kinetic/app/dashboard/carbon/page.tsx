@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Leaf, TrendingUp, TrendingDown, ArrowLeftRight, Plus, X,
   ShoppingCart, Clock, Building2, FileText, BarChart3,
@@ -13,9 +13,18 @@ interface EmissionReportResponse {
   companyName: string | null;
   sectorName: string | null;
   year: number;
+  reportType: "MIDYEAR" | "FINAL";
   activityLevel: number;
   verifiedEmissions: number;
+  parameters: Record<string, number> | null;
   submittedAt: string;
+}
+
+interface SectorInfo {
+  id: number;
+  name: string;
+  formula?: string;
+  activityFormula?: string;
 }
 
 interface AllocationResponse {
@@ -24,13 +33,28 @@ interface AllocationResponse {
   companyName: string | null;
   sectorName: string | null;
   year: number;
-  verifiedEmissions: number;
-  activityLevel: number;
-  intensity: number;
-  benchmarkIntensity: number;
-  deviationPct: number;
-  allocationAmount: number;
-  allocatedAt: string;
+  preAllocation: number | null;
+  verifiedEmissions: number | null;
+  activityLevel: number | null;
+  intensity: number | null;
+  benchmarkIntensity: number | null;
+  deviationPct: number | null;
+  allocationAmount: number | null;
+  surplusDeficit: number | null;
+  status: string | null;
+  allocatedAt: string | null;
+}
+
+interface CompliancePosition {
+  companyId: number;
+  year: number;
+  phase: string;
+  status: string | null;
+  preAllocation: number | null;
+  finalAllocation: number | null;
+  verifiedEmissions: number | null;
+  totalBalance: number | null;
+  surplusDeficit: number | null;
 }
 
 interface OrderBookEntry {
@@ -104,12 +128,18 @@ export default function CarbonMarketPage() {
   const [range, setRange] = useState("1M");
   const [activeTab, setActiveTab] = useState<"market" | "activity" | "emission">("market");
 
-  const currentYear = new Date().getFullYear();
+  // Anchored to the latest compliance year with seeded data (2025 demo year;
+  // 2022-2024 are settled history). The year dropdown shows 2022-2025.
+  const currentYear = 2025;
 
   // Emission report state (company only)
   const [reportYear, setReportYear] = useState<number>(currentYear);
+  const [reportType, setReportType] = useState<"MIDYEAR" | "FINAL">("FINAL");
   const [reportActivityLevel, setReportActivityLevel] = useState("");
   const [reportVerifiedEmissions, setReportVerifiedEmissions] = useState("");
+  const [mySector, setMySector] = useState<SectorInfo | null>(null);
+  const [paramValues, setParamValues] = useState<Record<string, string>>({});
+  const [position, setPosition] = useState<CompliancePosition | null>(null);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [reportSubmitError, setReportSubmitError] = useState<string | null>(null);
   const [reportSubmitSuccess, setReportSubmitSuccess] = useState<string | null>(null);
@@ -226,12 +256,18 @@ export default function CarbonMarketPage() {
     if (isGovernment || userRole === null) return;
     setLoadingReportData(true);
     try {
-      const [reportsRes, allocsRes] = await Promise.allSettled([
+      const [reportsRes, allocsRes, sectorRes] = await Promise.allSettled([
         axiosInstance.get<EmissionReportResponse[]>("/allocations/report/my"),
         axiosInstance.get<AllocationResponse[]>("/allocations/my"),
+        axiosInstance.get<SectorInfo>("/sectors/my"),
       ]);
       if (reportsRes.status === "fulfilled") setMyReports(reportsRes.value.data ?? []);
       if (allocsRes.status === "fulfilled") setMyAllocations(allocsRes.value.data ?? []);
+      // /sectors/my returns 204 (empty) when the company has no sector assigned.
+      if (sectorRes.status === "fulfilled") {
+        const s = sectorRes.value.data as SectorInfo | "" | null;
+        setMySector(s && (s as SectorInfo).id ? (s as SectorInfo) : null);
+      }
     } catch {
       // non-fatal
     } finally {
@@ -239,23 +275,64 @@ export default function CarbonMarketPage() {
     }
   }, [isGovernment, userRole]);
 
+  // Variables required by the company's sector formulas (union of {placeholders}).
+  const requiredVars = useMemo(() => {
+    const set = new Set<string>();
+    const re = /\{([^}]+)\}/g;
+    for (const f of [mySector?.formula, mySector?.activityFormula]) {
+      if (!f) continue;
+      let m;
+      while ((m = re.exec(f)) !== null) set.add(m[1]);
+    }
+    return Array.from(set);
+  }, [mySector]);
+
   useEffect(() => {
     if (activeTab === "emission" && !isGovernment) {
       fetchEmissionData();
     }
   }, [activeTab, fetchEmissionData, isGovernment]);
 
-  // Pre-fill form when selected year matches an existing report
+  // Compliance position + cycle phase for the selected reporting year.
+  const fetchPosition = useCallback(async (year: number) => {
+    if (isGovernment || userRole === null) return;
+    try {
+      const resp = await axiosInstance.get<CompliancePosition>(`/allocations/position/${year}`);
+      setPosition(resp.data);
+      // Default the report type to whichever window is currently open.
+      if (resp.data.phase === "MIDYEAR_OPEN") setReportType("MIDYEAR");
+      else if (resp.data.phase === "FINAL_OPEN") setReportType("FINAL");
+    } catch {
+      setPosition(null);
+    }
+  }, [isGovernment, userRole]);
+
   useEffect(() => {
-    const existing = myReports.find(r => r.year === reportYear);
+    if (activeTab === "emission" && !isGovernment) {
+      fetchPosition(reportYear);
+    }
+  }, [activeTab, reportYear, fetchPosition, isGovernment]);
+
+  // Pre-fill form when the selected year+type matches an existing report
+  useEffect(() => {
+    const existing = myReports.find(r => r.year === reportYear && r.reportType === reportType);
     if (existing) {
       setReportActivityLevel(String(existing.activityLevel));
       setReportVerifiedEmissions(String(existing.verifiedEmissions));
+      // Restore the raw per-variable inputs when available.
+      if (existing.parameters) {
+        const pv: Record<string, string> = {};
+        Object.entries(existing.parameters).forEach(([k, v]) => { pv[k] = String(v); });
+        setParamValues(pv);
+      } else {
+        setParamValues({});
+      }
     } else {
       setReportActivityLevel("");
       setReportVerifiedEmissions("");
+      setParamValues({});
     }
-  }, [reportYear, myReports]);
+  }, [reportYear, reportType, myReports]);
 
   const handleSubmitReport = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -263,13 +340,26 @@ export default function CarbonMarketPage() {
     setReportSubmitError(null);
     setReportSubmitSuccess(null);
     try {
-      await axiosInstance.post("/allocations/report", {
-        year: reportYear,
-        activityLevel: parseFloat(reportActivityLevel),
-        verifiedEmissions: parseFloat(reportVerifiedEmissions),
-      });
-      setReportSubmitSuccess(`Report for ${reportYear} submitted successfully.`);
-      await fetchEmissionData();
+      // With a sector, submit the raw input variables and let the server compute
+      // emissions + activity from the sector formulas; otherwise send the totals.
+      const payload: Record<string, unknown> = { year: reportYear, reportType };
+      if (mySector) {
+        const parameters: Record<string, number> = {};
+        requiredVars.forEach(v => { parameters[v] = parseFloat(paramValues[v] ?? "") || 0; });
+        payload.parameters = parameters;
+      } else {
+        payload.activityLevel = parseFloat(reportActivityLevel);
+        payload.verifiedEmissions = parseFloat(reportVerifiedEmissions);
+      }
+      const resp = await axiosInstance.post<EmissionReportResponse>("/allocations/report", payload);
+      const r = resp.data;
+      const label = reportType === "MIDYEAR" ? "Mid-year" : "Final";
+      setReportSubmitSuccess(
+        mySector
+          ? `${label} report for ${reportYear} submitted — emissions ${Number(r.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e over ${Number(r.activityLevel).toLocaleString(undefined, { maximumFractionDigits: 1 })} output.`
+          : `${label} report for ${reportYear} submitted successfully.`
+      );
+      await Promise.all([fetchEmissionData(), fetchPosition(reportYear)]);
     } catch (err: any) {
       setReportSubmitError(err.response?.data?.message ?? err.response?.data ?? "Failed to submit report.");
     } finally {
@@ -991,58 +1081,204 @@ export default function CarbonMarketPage() {
                       return <option key={y} value={y}>{y}</option>;
                     })}
                   </select>
-                  {myReports.find(r => r.year === reportYear) && (
+                  {myReports.find(r => r.year === reportYear && r.reportType === reportType) && (
                     <p className="text-[10px] font-bold text-[#F28C28] mt-1.5">
-                      Existing report found for {reportYear} — submitting will update it.
+                      Existing {reportType === "MIDYEAR" ? "mid-year" : "final"} report found for {reportYear} — submitting will update it.
                     </p>
                   )}
                 </div>
+
+                {/* Report type — gated by the current compliance phase */}
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
-                    Activity Level
+                    Report Type
                   </label>
-                  <input
-                    type="number" min="0.0001" step="0.0001" required
-                    value={reportActivityLevel}
-                    onChange={(e) => setReportActivityLevel(e.target.value)}
-                    placeholder="e.g. 50000"
-                    className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
-                  />
-                  <p className="text-[10px] font-semibold text-gray-400 mt-1">
-                    Production output in your sector&apos;s unit (e.g. tonnes of steel, GJ of fuel)
-                  </p>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
-                    Verified Emissions (tCO₂e)
-                  </label>
-                  <input
-                    type="number" min="0.0001" step="0.0001" required
-                    value={reportVerifiedEmissions}
-                    onChange={(e) => setReportVerifiedEmissions(e.target.value)}
-                    placeholder="e.g. 12500.00"
-                    className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
-                  />
-                </div>
-                {reportActivityLevel && reportVerifiedEmissions && (
-                  <div className="p-4 bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-xl">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                      Implied Intensity
-                    </p>
-                    <p className="text-xl font-black text-[#005A8C] mt-0.5">
-                      {(parseFloat(reportVerifiedEmissions) / parseFloat(reportActivityLevel)).toFixed(4)}
-                    </p>
-                    <p className="text-xs text-gray-400 font-semibold mt-0.5">tCO₂e per unit of output</p>
+                  <div className="flex gap-2">
+                    {(["MIDYEAR", "FINAL"] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setReportType(t)}
+                        className={`flex-1 py-2.5 text-sm font-bold rounded-xl border transition-all cursor-pointer ${
+                          reportType === t
+                            ? "bg-[#005A8C] text-white border-[#005A8C]"
+                            : "bg-white text-gray-500 border-gray-200 hover:border-[#005A8C]/40"
+                        }`}
+                      >
+                        {t === "MIDYEAR" ? "Mid-year (MRV)" : "Final (full year)"}
+                      </button>
+                    ))}
                   </div>
+                  {position && (
+                    <p className="text-[10px] font-bold mt-1.5 text-gray-400">
+                      Cycle phase for {reportYear}: <span className="font-black text-gray-600">{position.phase}</span>
+                      {position.phase === "MIDYEAR_OPEN" && " — mid-year reporting is open."}
+                      {position.phase === "FINAL_OPEN" && " — final reporting is open."}
+                      {position.phase !== "MIDYEAR_OPEN" && position.phase !== "FINAL_OPEN" &&
+                        " — reporting is currently closed; submission will be rejected."}
+                    </p>
+                  )}
+                  {reportType === "MIDYEAR" && (
+                    <p className="text-[10px] font-semibold text-gray-400 mt-1">
+                      Mid-year reports are informational (MRV) and do not change your credit balance.
+                    </p>
+                  )}
+                </div>
+                {mySector ? (
+                  <>
+                    <div className="p-3 bg-[#009B9E]/5 border border-[#009B9E]/10 rounded-xl">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sector</p>
+                      <p className="text-sm font-black text-[#009B9E]">{mySector.name}</p>
+                      <p className="text-[10px] font-semibold text-gray-400 mt-1">
+                        Enter your activity data — emissions and activity level are computed from your sector formulas on submit.
+                      </p>
+                    </div>
+                    {requiredVars.length === 0 ? (
+                      <p className="text-sm font-semibold text-gray-400">Your sector has no formula variables defined.</p>
+                    ) : (
+                      requiredVars.map((v) => (
+                        <div key={v}>
+                          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                            {v.replace(/_/g, " ")}
+                          </label>
+                          <input
+                            type="number" min="0" step="0.0001" required
+                            value={paramValues[v] ?? ""}
+                            onChange={(e) => setParamValues({ ...paramValues, [v]: e.target.value })}
+                            placeholder="0"
+                            className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                          />
+                        </div>
+                      ))
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                        Activity Level
+                      </label>
+                      <input
+                        type="number" min="0.0001" step="0.0001" required
+                        value={reportActivityLevel}
+                        onChange={(e) => setReportActivityLevel(e.target.value)}
+                        placeholder="e.g. 50000"
+                        className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                      />
+                      <p className="text-[10px] font-semibold text-gray-400 mt-1">
+                        Production output in your sector&apos;s unit. Assign a sector to report by formula variables instead.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                        Verified Emissions (tCO₂e)
+                      </label>
+                      <input
+                        type="number" min="0.0001" step="0.0001" required
+                        value={reportVerifiedEmissions}
+                        onChange={(e) => setReportVerifiedEmissions(e.target.value)}
+                        placeholder="e.g. 12500.00"
+                        className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                      />
+                    </div>
+                    {reportActivityLevel && reportVerifiedEmissions && (
+                      <div className="p-4 bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-xl">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                          Implied Intensity
+                        </p>
+                        <p className="text-xl font-black text-[#005A8C] mt-0.5">
+                          {(parseFloat(reportVerifiedEmissions) / parseFloat(reportActivityLevel)).toFixed(4)}
+                        </p>
+                        <p className="text-xs text-gray-400 font-semibold mt-0.5">tCO₂e per unit of output</p>
+                      </div>
+                    )}
+                  </>
                 )}
                 <button
                   type="submit"
                   disabled={isSubmittingReport}
                   className="w-full py-3.5 bg-[#005A8C] text-white font-bold rounded-2xl hover:bg-[#004a73] transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  {isSubmittingReport ? "Submitting..." : `Submit ${reportYear} Report`}
+                  {isSubmittingReport ? "Submitting..." : `Submit ${reportYear} ${reportType === "MIDYEAR" ? "Mid-year" : "Final"} Report`}
                 </button>
               </form>
+            </div>
+          </div>
+
+          {/* Compliance Position */}
+          <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
+            <div className="px-7 py-5 border-b border-gray-100 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Leaf size={18} className="text-[#009B9E]" />
+                <div>
+                  <h2 className="font-black text-base text-[#009B9E]">Compliance Position — {reportYear}</h2>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                    Allowances vs. verified emissions
+                  </p>
+                </div>
+              </div>
+              {position?.status && (
+                <span className="text-[10px] font-extrabold text-gray-500 bg-gray-50 border border-gray-100 px-2.5 py-1 rounded-full">
+                  {position.status}
+                </span>
+              )}
+            </div>
+            <div className="p-7">
+              {!position ? (
+                <p className="text-sm font-bold text-gray-300">No compliance data for {reportYear} yet.</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+                    <div className="p-4 bg-gray-50/60 border border-gray-100 rounded-2xl">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Pre-allocation</p>
+                      <p className="text-lg font-black text-gray-800 mt-0.5">
+                        {position.preAllocation != null ? Number(position.preAllocation).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
+                      </p>
+                    </div>
+                    <div className="p-4 bg-gray-50/60 border border-gray-100 rounded-2xl">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Final allocation</p>
+                      <p className="text-lg font-black text-[#005A8C] mt-0.5">
+                        {position.finalAllocation != null ? Number(position.finalAllocation).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
+                      </p>
+                    </div>
+                    <div className="p-4 bg-gray-50/60 border border-gray-100 rounded-2xl">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Verified emissions</p>
+                      <p className="text-lg font-black text-gray-800 mt-0.5">
+                        {position.verifiedEmissions != null ? Number(position.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
+                      </p>
+                    </div>
+                    <div className="p-4 bg-gray-50/60 border border-gray-100 rounded-2xl">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Current balance</p>
+                      <p className="text-lg font-black text-gray-800 mt-0.5">
+                        {position.totalBalance != null ? Number(position.totalBalance).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {position.surplusDeficit != null && (
+                    <div className={`p-4 rounded-2xl border flex items-center justify-between ${
+                      Number(position.surplusDeficit) >= 0
+                        ? "bg-emerald-50 border-emerald-100"
+                        : "bg-red-50 border-red-100"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {Number(position.surplusDeficit) >= 0
+                          ? <TrendingUp size={18} className="text-emerald-600" />
+                          : <TrendingDown size={18} className="text-red-600" />}
+                        <span className={`text-sm font-black ${Number(position.surplusDeficit) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                          {Number(position.surplusDeficit) >= 0 ? "Surplus" : "Deficit"}: {Number(position.surplusDeficit) >= 0 ? "+" : ""}
+                          {Number(position.surplusDeficit).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold text-gray-500">
+                        {Number(position.surplusDeficit) >= 0
+                          ? "Surplus carries forward to next year — or sell it on the market."
+                          : "Buy credits to cover the shortfall before settlement."}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
 
@@ -1073,28 +1309,28 @@ export default function CarbonMarketPage() {
                 </div>
                 <div className="divide-y divide-gray-50">
                   {[...myAllocations].sort((a, b) => b.year - a.year).map((alloc) => {
-                    const dev = Number(alloc.deviationPct);
-                    const devColor = dev < 0 ? "text-emerald-600" : dev > 0 ? "text-red-500" : "text-gray-500";
+                    const dev = alloc.deviationPct != null ? Number(alloc.deviationPct) : null;
+                    const devColor = dev == null ? "text-gray-300" : dev < 0 ? "text-emerald-600" : dev > 0 ? "text-red-500" : "text-gray-500";
                     return (
                       <div key={alloc.id} className="px-5 py-4 grid grid-cols-12 gap-2 items-center hover:bg-gray-50/50 transition-colors">
                         <span className="col-span-1 text-sm font-black text-gray-800">{alloc.year}</span>
                         <span className="col-span-2 text-sm font-bold text-gray-700 text-right">
-                          {Number(alloc.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                          {alloc.verifiedEmissions != null ? Number(alloc.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
                         </span>
                         <span className="col-span-2 text-sm font-black text-[#009B9E] text-right">
-                          {Number(alloc.allocationAmount).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                          {alloc.allocationAmount != null ? Number(alloc.allocationAmount).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
                         </span>
                         <span className="col-span-2 text-sm font-bold text-gray-600 text-right tabular-nums">
-                          {Number(alloc.intensity).toFixed(4)}
+                          {alloc.intensity != null ? Number(alloc.intensity).toFixed(4) : "—"}
                         </span>
                         <span className="col-span-2 text-sm font-bold text-gray-600 text-right tabular-nums">
-                          {Number(alloc.benchmarkIntensity).toFixed(4)}
+                          {alloc.benchmarkIntensity != null ? Number(alloc.benchmarkIntensity).toFixed(4) : "—"}
                         </span>
                         <span className={`col-span-1 text-sm font-black text-right ${devColor}`}>
-                          {dev > 0 ? "+" : ""}{dev.toFixed(2)}%
+                          {dev == null ? "—" : `${dev > 0 ? "+" : ""}${dev.toFixed(2)}%`}
                         </span>
                         <span className="col-span-2 text-[10px] font-semibold text-gray-400 text-right">
-                          {new Date(alloc.allocatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                          {alloc.allocatedAt ? new Date(alloc.allocatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                         </span>
                       </div>
                     );

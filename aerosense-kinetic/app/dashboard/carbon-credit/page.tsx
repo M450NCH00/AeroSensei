@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Settings2, Plus, X, Pencil, Trash2, FlaskConical,
   Building2, TrendingUp, TrendingDown, Users, ChevronDown, Check, Loader2,
-  BarChart3, FileText, RefreshCw,
+  BarChart3, FileText, RefreshCw, Leaf,
 } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
 import { useAuth } from "@/app/context/AuthContext";
@@ -16,9 +16,23 @@ interface EmissionReportResponse {
   companyName: string | null;
   sectorName: string | null;
   year: number;
+  reportType?: "MIDYEAR" | "FINAL";
   activityLevel: number;
   verifiedEmissions: number;
+  parameters?: Record<string, number> | null;
   submittedAt: string;
+}
+
+interface CompliancePosition {
+  companyId: number;
+  year: number;
+  phase: string;
+  status: string | null;
+  preAllocation: number | null;
+  finalAllocation: number | null;
+  verifiedEmissions: number | null;
+  totalBalance: number | null;
+  surplusDeficit: number | null;
 }
 
 interface AllocationResponse {
@@ -27,19 +41,43 @@ interface AllocationResponse {
   companyName: string | null;
   sectorName: string | null;
   year: number;
-  verifiedEmissions: number;
-  activityLevel: number;
-  intensity: number;
-  benchmarkIntensity: number;
-  deviationPct: number;
-  allocationAmount: number;
-  allocatedAt: string;
+  preAllocation: number | null;
+  verifiedEmissions: number | null;
+  activityLevel: number | null;
+  intensity: number | null;
+  benchmarkIntensity: number | null;
+  deviationPct: number | null;
+  allocationAmount: number | null;
+  surplusDeficit: number | null;
+  status: string | null;
+  allocatedAt: string | null;
 }
+
+interface ComplianceCycle {
+  year: number;
+  phase: "PENDING" | "PRE_ALLOCATED" | "MIDYEAR_OPEN" | "FINAL_OPEN" | "ALLOCATED" | "SETTLED";
+  preAllocatedAt: string | null;
+  midyearOpenedAt: string | null;
+  finalOpenedAt: string | null;
+  allocatedAt: string | null;
+  settledAt: string | null;
+}
+
+// Ordered phases + the government action that advances out of each.
+const CYCLE_STEPS: { phase: ComplianceCycle["phase"]; label: string; action: string; next: string }[] = [
+  { phase: "PENDING",       label: "Pending",        action: "pre-allocate", next: "Pre-allocate (70% of prior year)" },
+  { phase: "PRE_ALLOCATED", label: "Pre-allocated",  action: "open-midyear", next: "Open Mid-year Reporting" },
+  { phase: "MIDYEAR_OPEN",  label: "Mid-year open",  action: "open-final",   next: "Open Final Reporting" },
+  { phase: "FINAL_OPEN",    label: "Final open",     action: "finalize",     next: "Finalize Allocation" },
+  { phase: "ALLOCATED",     label: "Allocated",      action: "settle",       next: "Settle & Deduct" },
+  { phase: "SETTLED",       label: "Settled",        action: "",             next: "" },
+];
 
 interface Sector {
   id?: number;
   name: string;
-  formula?: string;
+  formula?: string;          // emissions formula
+  activityFormula?: string;  // activity-level / output formula
   description?: string;
 }
 
@@ -71,7 +109,7 @@ export default function CarbonCreditPage() {
   const [editing, setEditing] = useState<Sector | null>(null);
   const [showEval, setShowEval] = useState<Sector | null>(null);
   const [params, setParams] = useState<Record<string, string>>({});
-  const [evalResult, setEvalResult] = useState<number | null>(null);
+  const [evalResult, setEvalResult] = useState<{ emission: number; activity: number | null } | null>(null);
 
   // Companies state
   const [companies, setCompanies] = useState<CompanyOverview[]>([]);
@@ -82,8 +120,26 @@ export default function CarbonCreditPage() {
 
   const [error, setError] = useState<string | null>(null);
 
+  // Company-view state
+  const [companyCycle, setCompanyCycle] = useState<ComplianceCycle | null>(null);
+  const [companyMySector, setCompanyMySector] = useState<Sector | null>(null);
+  const [companyPosition, setCompanyPosition] = useState<CompliancePosition | null>(null);
+  const [companyMyReports, setCompanyMyReports] = useState<EmissionReportResponse[]>([]);
+  const [companyMyAllocations, setCompanyMyAllocations] = useState<AllocationResponse[]>([]);
+  const [companyReportYear, setCompanyReportYear] = useState<number>(2025);
+  const [companyReportType, setCompanyReportType] = useState<"MIDYEAR" | "FINAL">("FINAL");
+  const [companyParamValues, setCompanyParamValues] = useState<Record<string, string>>({});
+  const [companyActivityLevel, setCompanyActivityLevel] = useState("");
+  const [companyVerifiedEmissions, setCompanyVerifiedEmissions] = useState("");
+  const [isSubmittingCompanyReport, setIsSubmittingCompanyReport] = useState(false);
+  const [companyReportError, setCompanyReportError] = useState<string | null>(null);
+  const [companyReportSuccess, setCompanyReportSuccess] = useState<string | null>(null);
+  const [loadingCompanyData, setLoadingCompanyData] = useState(false);
+
   // Allocations state
-  const currentYear = new Date().getFullYear();
+  // Anchored to the latest compliance year that has seeded data (2025 is the
+  // live demo year; 2022-2024 are settled history). The dropdowns show 2022-2025.
+  const currentYear = 2025;
 
   const [companiesYear, setCompaniesYear] = useState<number>(currentYear);
   const [companiesReports, setCompaniesReports] = useState<EmissionReportResponse[]>([]);
@@ -95,7 +151,8 @@ export default function CarbonCreditPage() {
   const [allocResults, setAllocResults] = useState<AllocationResponse[]>([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [loadingAllocs, setLoadingAllocs] = useState(false);
-  const [calculatingAllocs, setCalculatingAllocs] = useState(false);
+  const [cycle, setCycle] = useState<ComplianceCycle | null>(null);
+  const [runningAction, setRunningAction] = useState<string | null>(null);
   const [allocError, setAllocError] = useState<string | null>(null);
   const [allocSuccess, setAllocSuccess] = useState<string | null>(null);
 
@@ -200,21 +257,34 @@ export default function CarbonCreditPage() {
     } finally { setLoadingAllocs(false); }
   };
 
-  const handleCalculateAllocations = async () => {
-    setCalculatingAllocs(true);
+  const fetchCycle = async (year: number) => {
+    try {
+      const resp = await axiosInstance.get<ComplianceCycle>(`/allocations/cycle/${year}`);
+      setCycle(resp.data);
+    } catch {
+      setCycle(null);
+    }
+  };
+
+  // Advance the compliance cycle one phase via the matching government endpoint.
+  const runCycleAction = async (action: string, label: string) => {
+    setRunningAction(action);
     setAllocError(null);
     setAllocSuccess(null);
     try {
-      const resp = await axiosInstance.post<AllocationResponse[]>(`/allocations/calculate/${allocYear}`);
-      setAllocResults(resp.data || []);
-      setAllocSuccess(`Allocations calculated successfully for ${allocYear}. ${resp.data?.length ?? 0} companies allocated.`);
+      const resp = await axiosInstance.post<ComplianceCycle>(`/allocations/cycle/${allocYear}/${action}`);
+      setCycle(resp.data);
+      setAllocSuccess(`${label} completed for ${allocYear}. Cycle is now ${resp.data.phase}.`);
+      // Refresh ledger views affected by the action.
+      await Promise.all([fetchAllReports(allocYear), fetchAllocs(allocYear)]);
     } catch (e: any) {
-      setAllocError(e.response?.data?.message ?? e.response?.data ?? "Failed to calculate allocations.");
-    } finally { setCalculatingAllocs(false); }
+      setAllocError(e.response?.data?.message ?? e.response?.data ?? `Failed to ${label.toLowerCase()}.`);
+    } finally { setRunningAction(null); }
   };
 
   useEffect(() => {
     if (activeTab === "allocations") {
+      fetchCycle(allocYear);
       fetchAllReports(allocYear);
       fetchAllocs(allocYear);
     }
@@ -246,8 +316,10 @@ export default function CarbonCreditPage() {
     const keys = new Set<string>();
     const regex = /\{([^}]+)\}/g;
     let m;
-    if (s.formula) {
-      while ((m = regex.exec(s.formula)) !== null) keys.add(m[1]);
+    // Collect parameters from both the emission and activity formulas.
+    for (const f of [s.formula, s.activityFormula]) {
+      if (!f) continue;
+      while ((m = regex.exec(f)) !== null) keys.add(m[1]);
     }
     const obj: Record<string, string> = {};
     keys.forEach(k => obj[k] = '');
@@ -260,7 +332,10 @@ export default function CarbonCreditPage() {
       const finalParams: Record<string, number> = {};
       Object.entries(params).forEach(([k, v]) => finalParams[k] = Number(v));
       const resp = await axiosInstance.post(`/sectors/${showEval.id}/evaluate`, { parameters: finalParams });
-      setEvalResult(resp.data?.result ?? null);
+      setEvalResult({
+        emission: resp.data?.emissionResult ?? 0,
+        activity: resp.data?.activityResult ?? null,
+      });
     } catch (e) {
       console.error(e);
       setError('Evaluation failed');
@@ -284,12 +359,467 @@ export default function CarbonCreditPage() {
     }
   };
 
+  // ── Company-view helpers ──────────────────────────────────────────────────
+
+  const requiredCompanyVars = useMemo(() => {
+    const set = new Set<string>();
+    const re = /\{([^}]+)\}/g;
+    for (const f of [companyMySector?.formula, companyMySector?.activityFormula]) {
+      if (!f) continue;
+      let m;
+      while ((m = re.exec(f)) !== null) set.add(m[1]);
+    }
+    return Array.from(set);
+  }, [companyMySector]);
+
+  const fetchCompanyData = async () => {
+    setLoadingCompanyData(true);
+    try {
+      const [cycleRes, reportsRes, allocsRes, sectorRes] = await Promise.allSettled([
+        axiosInstance.get<ComplianceCycle>(`/allocations/cycle/${currentYear}`),
+        axiosInstance.get<EmissionReportResponse[]>('/allocations/report/my'),
+        axiosInstance.get<AllocationResponse[]>('/allocations/my'),
+        axiosInstance.get<Sector>('/sectors/my'),
+      ]);
+      if (cycleRes.status === 'fulfilled') {
+        const cycle = cycleRes.value.data;
+        setCompanyCycle(cycle);
+        if (cycle.phase === 'MIDYEAR_OPEN') setCompanyReportType('MIDYEAR');
+        else if (cycle.phase === 'FINAL_OPEN') setCompanyReportType('FINAL');
+      }
+      if (reportsRes.status === 'fulfilled') setCompanyMyReports(reportsRes.value.data ?? []);
+      if (allocsRes.status === 'fulfilled') setCompanyMyAllocations(allocsRes.value.data ?? []);
+      if (sectorRes.status === 'fulfilled') {
+        const s = sectorRes.value.data as Sector | '' | null;
+        setCompanyMySector(s && (s as Sector).id ? (s as Sector) : null);
+      }
+    } catch { /* non-fatal */ } finally {
+      setLoadingCompanyData(false);
+    }
+  };
+
+  const fetchCompanyPosition = async (year: number) => {
+    try {
+      const resp = await axiosInstance.get<CompliancePosition>(`/allocations/position/${year}`);
+      setCompanyPosition(resp.data);
+    } catch {
+      setCompanyPosition(null);
+    }
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (hasRole('COMPANY')) { fetchCompanyData(); } }, []);
+
+  useEffect(() => {
+    if (hasRole('COMPANY')) fetchCompanyPosition(companyReportYear);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyReportYear]);
+
+  useEffect(() => {
+    const existing = companyMyReports.find(r => r.year === companyReportYear && r.reportType === companyReportType);
+    if (existing) {
+      setCompanyActivityLevel(String(existing.activityLevel));
+      setCompanyVerifiedEmissions(String(existing.verifiedEmissions));
+      if (existing.parameters) {
+        const pv: Record<string, string> = {};
+        Object.entries(existing.parameters).forEach(([k, v]) => { pv[k] = String(v); });
+        setCompanyParamValues(pv);
+      } else {
+        setCompanyParamValues({});
+      }
+    } else {
+      setCompanyActivityLevel("");
+      setCompanyVerifiedEmissions("");
+      setCompanyParamValues({});
+    }
+  }, [companyReportYear, companyReportType, companyMyReports]);
+
+  const handleCompanySubmitReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingCompanyReport(true);
+    setCompanyReportError(null);
+    setCompanyReportSuccess(null);
+    try {
+      const payload: Record<string, unknown> = { year: companyReportYear, reportType: companyReportType };
+      if (companyMySector) {
+        const parameters: Record<string, number> = {};
+        requiredCompanyVars.forEach(v => { parameters[v] = parseFloat(companyParamValues[v] ?? '') || 0; });
+        payload.parameters = parameters;
+      } else {
+        payload.activityLevel = parseFloat(companyActivityLevel);
+        payload.verifiedEmissions = parseFloat(companyVerifiedEmissions);
+      }
+      const resp = await axiosInstance.post<EmissionReportResponse>('/allocations/report', payload);
+      const r = resp.data;
+      const label = companyReportType === 'MIDYEAR' ? 'Mid-year' : 'Final';
+      setCompanyReportSuccess(
+        companyMySector
+          ? `${label} report for ${companyReportYear} submitted — ${Number(r.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e over ${Number(r.activityLevel).toLocaleString(undefined, { maximumFractionDigits: 1 })} output.`
+          : `${label} report for ${companyReportYear} submitted successfully.`
+      );
+      await Promise.all([fetchCompanyData(), fetchCompanyPosition(companyReportYear)]);
+    } catch (err: any) {
+      setCompanyReportError(err.response?.data?.message ?? err.response?.data ?? 'Failed to submit report.');
+    } finally {
+      setIsSubmittingCompanyReport(false);
+    }
+  };
+
+  // ── Company view (non-government users) ──────────────────────────────────
+
   if (!hasRole('GOVERNMENT') && !hasRole('ADMIN')) {
+    const canSubmit = companyCycle?.phase === 'MIDYEAR_OPEN' || companyCycle?.phase === 'FINAL_OPEN';
+    const curStepIdx = CYCLE_STEPS.findIndex(s => s.phase === (companyCycle?.phase ?? 'PENDING'));
+
     return (
       <AuthGuard>
-        <div className="p-8 min-h-screen bg-[#F8FAFC] flex items-center justify-center">
-          <div className="bg-white border border-gray-200/60 rounded-2xl p-8 text-center shadow-sm max-w-md">
-            <p className="text-sm font-bold text-gray-500">You do not have permission to manage carbon credit sectors.</p>
+        <div className="p-8 min-h-screen bg-[#F8FAFC] flex flex-col gap-6 select-none">
+
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-black text-[#005A8C] tracking-tight flex items-center gap-2">
+                <Leaf size={22} className="text-[#009B9E]" />
+                Carbon Credit
+              </h1>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                Compliance &amp; Emission Reporting
+              </p>
+            </div>
+            {loadingCompanyData && <Loader2 size={18} className="text-gray-300 animate-spin" />}
+          </div>
+
+          {/* Phase Status */}
+          <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
+              <RefreshCw size={15} className="text-[#005A8C]" />
+              <span className="text-sm font-black text-[#005A8C]">Compliance Cycle {currentYear}</span>
+            </div>
+            <div className="px-6 py-5 flex flex-col gap-4">
+              <div className="flex items-center gap-1 flex-wrap">
+                {CYCLE_STEPS.map((step, i) => {
+                  const done = curStepIdx > i;
+                  const active = curStepIdx === i;
+                  return (
+                    <div key={step.phase} className="flex items-center gap-1">
+                      <span className={`text-[11px] font-black px-3 py-1.5 rounded-full border transition-colors ${
+                        active ? 'bg-[#005A8C] text-white border-[#005A8C]'
+                        : done ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                        : 'bg-gray-50 text-gray-400 border-gray-100'
+                      }`}>
+                        {done && <Check size={11} className="inline mr-1 -mt-0.5" />}{step.label}
+                      </span>
+                      {i < CYCLE_STEPS.length - 1 && <ChevronDown size={12} className="text-gray-300 -rotate-90" />}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className={`px-4 py-3 rounded-2xl border text-sm font-bold ${
+                canSubmit ? 'bg-[#009B9E]/5 border-[#009B9E]/20 text-[#009B9E]' : 'bg-gray-50 border-gray-100 text-gray-500'
+              }`}>
+                {companyCycle?.phase === 'PENDING' && 'Reporting is not yet open. Waiting for government pre-allocation.'}
+                {companyCycle?.phase === 'PRE_ALLOCATED' && 'Pre-allocation completed. Waiting for mid-year reporting window to open.'}
+                {companyCycle?.phase === 'MIDYEAR_OPEN' && 'Mid-year reporting window is open — submit your mid-year emission report below.'}
+                {companyCycle?.phase === 'FINAL_OPEN' && 'Final reporting window is open — submit your final annual emission report below.'}
+                {companyCycle?.phase === 'ALLOCATED' && 'Final allocations have been calculated. Waiting for settlement.'}
+                {companyCycle?.phase === 'SETTLED' && 'The compliance cycle for this year has been settled. Any surplus has been carried forward.'}
+                {!companyCycle && 'No compliance cycle data available for this year yet.'}
+              </div>
+            </div>
+          </div>
+
+          {/* Submit Report — only when window is open */}
+          {canSubmit && (
+            <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
+              <div className="px-7 py-5 border-b border-gray-100 flex items-center gap-3">
+                <FileText size={18} className="text-[#005A8C]" />
+                <div>
+                  <h2 className="font-black text-base text-[#005A8C]">Submit Emission Report</h2>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                    {companyCycle?.phase === 'MIDYEAR_OPEN' ? 'Mid-year (MRV) report' : 'Final annual report'}
+                  </p>
+                </div>
+                {companyMySector && (
+                  <span className="ml-auto text-xs font-bold text-[#009B9E] bg-[#009B9E]/8 px-3 py-1.5 rounded-xl">
+                    {companyMySector.name}
+                  </span>
+                )}
+              </div>
+              <div className="p-7">
+                {companyReportError && (
+                  <div className="mb-5 p-4 bg-red-50 border border-red-100 rounded-2xl text-sm font-bold text-red-700 flex justify-between items-center">
+                    <span>{companyReportError}</span>
+                    <button onClick={() => setCompanyReportError(null)} className="cursor-pointer"><X size={16} /></button>
+                  </div>
+                )}
+                {companyReportSuccess && (
+                  <div className="mb-5 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-sm font-bold text-emerald-700 flex justify-between items-center">
+                    <span>{companyReportSuccess}</span>
+                    <button onClick={() => setCompanyReportSuccess(null)} className="cursor-pointer"><X size={16} /></button>
+                  </div>
+                )}
+                <form onSubmit={handleCompanySubmitReport} className="space-y-5">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Reporting Year</label>
+                      <select
+                        value={companyReportYear}
+                        onChange={(e) => setCompanyReportYear(Number(e.target.value))}
+                        className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
+                      >
+                        {[0, 1, 2, 3].map((offset) => {
+                          const y = currentYear - offset;
+                          return <option key={y} value={y}>{y}</option>;
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Report Type</label>
+                      <div className="flex gap-2">
+                        {(['MIDYEAR', 'FINAL'] as const).map((t) => {
+                          const available = (t === 'MIDYEAR' && companyCycle?.phase === 'MIDYEAR_OPEN') || (t === 'FINAL' && companyCycle?.phase === 'FINAL_OPEN');
+                          return (
+                            <button
+                              key={t} type="button"
+                              onClick={() => available && setCompanyReportType(t)}
+                              disabled={!available}
+                              className={`flex-1 py-2.5 text-sm font-bold rounded-xl border transition-all ${
+                                companyReportType === t ? 'bg-[#005A8C] text-white border-[#005A8C]'
+                                : available ? 'bg-white text-gray-500 border-gray-200 hover:border-[#005A8C]/40 cursor-pointer'
+                                : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'
+                              }`}
+                            >
+                              {t === 'MIDYEAR' ? 'Mid-year' : 'Final'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {companyMyReports.find(r => r.year === companyReportYear && r.reportType === companyReportType) && (
+                    <p className="text-[10px] font-bold text-[#F28C28]">
+                      Existing {companyReportType === 'MIDYEAR' ? 'mid-year' : 'final'} report found for {companyReportYear} — submitting will update it.
+                    </p>
+                  )}
+
+                  {companyMySector ? (
+                    <>
+                      <div className="p-3 bg-[#009B9E]/5 border border-[#009B9E]/10 rounded-xl">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sector</p>
+                        <p className="text-sm font-black text-[#009B9E]">{companyMySector.name}</p>
+                        {companyMySector.description && (
+                          <p className="text-[10px] font-semibold text-gray-400 mt-1">{companyMySector.description}</p>
+                        )}
+                        <p className="text-[10px] font-semibold text-gray-400 mt-1">
+                          Enter your activity data below — emissions and activity level are computed from your sector formulas on submit.
+                        </p>
+                      </div>
+                      {requiredCompanyVars.length === 0 ? (
+                        <p className="text-sm font-semibold text-gray-400">Your sector has no formula variables defined.</p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-4">
+                          {requiredCompanyVars.map((v) => (
+                            <div key={v}>
+                              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                                {v.replace(/_/g, ' ')}
+                              </label>
+                              <input
+                                type="number" min="0" step="0.0001" required
+                                value={companyParamValues[v] ?? ''}
+                                onChange={(e) => setCompanyParamValues({ ...companyParamValues, [v]: e.target.value })}
+                                placeholder="0"
+                                className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">No sector assigned</p>
+                        <p className="text-xs font-semibold text-amber-700 mt-1">
+                          You have no sector assigned. Enter your totals directly below, or contact your administrator to assign a sector.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Activity Level</label>
+                        <input
+                          type="number" min="0.0001" step="0.0001" required
+                          value={companyActivityLevel}
+                          onChange={(e) => setCompanyActivityLevel(e.target.value)}
+                          placeholder="e.g. 50000"
+                          className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                        />
+                        <p className="text-[10px] font-semibold text-gray-400 mt-1">Production output in your sector&apos;s unit.</p>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Verified Emissions (tCO₂e)</label>
+                        <input
+                          type="number" min="0.0001" step="0.0001" required
+                          value={companyVerifiedEmissions}
+                          onChange={(e) => setCompanyVerifiedEmissions(e.target.value)}
+                          placeholder="e.g. 12500.00"
+                          className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                        />
+                      </div>
+                      {companyActivityLevel && companyVerifiedEmissions && (
+                        <div className="p-4 bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-xl">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Implied Intensity</p>
+                          <p className="text-xl font-black text-[#005A8C] mt-0.5">
+                            {(parseFloat(companyVerifiedEmissions) / parseFloat(companyActivityLevel)).toFixed(4)}
+                          </p>
+                          <p className="text-xs text-gray-400 font-semibold mt-0.5">tCO₂e per unit of output</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <button
+                    type="submit" disabled={isSubmittingCompanyReport}
+                    className="w-full py-3.5 bg-[#005A8C] text-white font-bold rounded-2xl hover:bg-[#004a73] transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmittingCompanyReport ? 'Submitting...' : `Submit ${companyReportYear} ${companyReportType === 'MIDYEAR' ? 'Mid-year' : 'Final'} Report`}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Compliance Position */}
+          <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
+            <div className="px-7 py-5 border-b border-gray-100 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Leaf size={18} className="text-[#009B9E]" />
+                <div>
+                  <h2 className="font-black text-base text-[#009B9E]">Compliance Position — {companyReportYear}</h2>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Allowances vs. verified emissions</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {companyPosition?.status && (
+                  <span className="text-[10px] font-extrabold text-gray-500 bg-gray-50 border border-gray-100 px-2.5 py-1 rounded-full">
+                    {companyPosition.status}
+                  </span>
+                )}
+                <select
+                  value={companyReportYear}
+                  onChange={(e) => setCompanyReportYear(Number(e.target.value))}
+                  className="px-3 py-1.5 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
+                >
+                  {[0, 1, 2, 3].map((offset) => {
+                    const y = currentYear - offset;
+                    return <option key={y} value={y}>{y}</option>;
+                  })}
+                </select>
+              </div>
+            </div>
+            <div className="p-7">
+              {!companyPosition ? (
+                <p className="text-sm font-bold text-gray-300">No compliance data for {companyReportYear} yet.</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+                    {[
+                      { label: 'Pre-allocation', value: companyPosition.preAllocation, color: 'text-gray-800' },
+                      { label: 'Final allocation', value: companyPosition.finalAllocation, color: 'text-[#005A8C]' },
+                      { label: 'Verified emissions', value: companyPosition.verifiedEmissions, color: 'text-gray-800' },
+                      { label: 'Current balance', value: companyPosition.totalBalance, color: 'text-gray-800' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="p-4 bg-gray-50/60 border border-gray-100 rounded-2xl">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</p>
+                        <p className={`text-lg font-black mt-0.5 ${color}`}>
+                          {value != null ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}
+                        </p>
+                        <p className="text-[10px] text-gray-400 font-semibold">tCO₂e</p>
+                      </div>
+                    ))}
+                  </div>
+                  {companyPosition.surplusDeficit != null && (
+                    <div className={`p-4 rounded-2xl border flex items-center justify-between ${
+                      Number(companyPosition.surplusDeficit) >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {Number(companyPosition.surplusDeficit) >= 0
+                          ? <TrendingUp size={18} className="text-emerald-600" />
+                          : <TrendingDown size={18} className="text-red-600" />}
+                        <span className={`text-sm font-black ${Number(companyPosition.surplusDeficit) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                          {Number(companyPosition.surplusDeficit) >= 0 ? 'Surplus' : 'Deficit'}: {Number(companyPosition.surplusDeficit) >= 0 ? '+' : ''}
+                          {Number(companyPosition.surplusDeficit).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold text-gray-500">
+                        {Number(companyPosition.surplusDeficit) >= 0
+                          ? 'Surplus carries forward — or sell it on the market.'
+                          : 'Buy credits to cover the shortfall before settlement.'}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Allocation History */}
+          <div>
+            <h2 className="font-black text-base text-gray-800 mb-3 flex items-center gap-2">
+              <BarChart3 size={16} className="text-[#009B9E]" />
+              My Allocation History
+            </h2>
+            {loadingCompanyData ? (
+              <div className="bg-white border border-gray-200/60 rounded-2xl p-8 text-center shadow-sm">
+                <p className="text-sm font-bold text-gray-400">Loading...</p>
+              </div>
+            ) : companyMyAllocations.length === 0 ? (
+              <div className="bg-white border border-gray-200/60 rounded-2xl p-8 text-center shadow-sm">
+                <p className="text-sm font-bold text-gray-300">No allocations yet. Submit a report and wait for government calculation.</p>
+              </div>
+            ) : (
+              <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
+                <div className="px-5 py-3 grid grid-cols-12 gap-2 border-b border-gray-100">
+                  <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Year</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Emissions</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Allocation</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Intensity</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Benchmark</span>
+                  <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Dev%</span>
+                  <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Status</span>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {[...companyMyAllocations].sort((a, b) => b.year - a.year).map((alloc) => {
+                    const dev = alloc.deviationPct != null ? Number(alloc.deviationPct) : null;
+                    const devColor = dev == null ? 'text-gray-300' : dev < 0 ? 'text-emerald-600' : dev > 0 ? 'text-red-500' : 'text-gray-500';
+                    return (
+                      <div key={alloc.id} className="px-5 py-4 grid grid-cols-12 gap-2 items-center hover:bg-gray-50/50 transition-colors">
+                        <span className="col-span-1 text-sm font-black text-gray-800">{alloc.year}</span>
+                        <span className="col-span-2 text-sm font-bold text-gray-700 text-right">
+                          {alloc.verifiedEmissions != null ? Number(alloc.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}
+                        </span>
+                        <span className="col-span-2 text-sm font-black text-[#009B9E] text-right">
+                          {alloc.allocationAmount != null ? Number(alloc.allocationAmount).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}
+                        </span>
+                        <span className="col-span-2 text-sm font-bold text-gray-600 text-right tabular-nums">
+                          {alloc.intensity != null ? Number(alloc.intensity).toFixed(4) : '—'}
+                        </span>
+                        <span className="col-span-2 text-sm font-bold text-gray-600 text-right tabular-nums">
+                          {alloc.benchmarkIntensity != null ? Number(alloc.benchmarkIntensity).toFixed(4) : '—'}
+                        </span>
+                        <span className={`col-span-1 text-sm font-black text-right ${devColor}`}>
+                          {dev == null ? '—' : `${dev > 0 ? '+' : ''}${dev.toFixed(2)}%`}
+                        </span>
+                        <div className="col-span-2 flex justify-end">
+                          <span className="text-[9px] font-extrabold text-gray-500 bg-gray-50 border border-gray-100 px-2 py-1 rounded-full">
+                            {alloc.status ?? '—'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </AuthGuard>
@@ -313,7 +843,7 @@ export default function CarbonCreditPage() {
           </div>
           {activeTab === "sectors" && (
             <button
-              onClick={() => setEditing({ name: '', formula: '', description: '' })}
+              onClick={() => setEditing({ name: '', formula: '', activityFormula: '', description: '' })}
               className="flex items-center gap-2 px-5 py-3 bg-[#009B9E] text-white text-sm font-bold rounded-2xl hover:bg-[#007d80] transition-all shadow-sm hover:-translate-y-0.5 hover:shadow-md cursor-pointer"
             >
               <Plus size={16} />
@@ -363,7 +893,7 @@ export default function CarbonCreditPage() {
             <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
               <div className="px-5 py-3 grid grid-cols-12 gap-2 border-b border-gray-100">
                 <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sector</span>
-                <span className="col-span-5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Formula</span>
+                <span className="col-span-5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Formulas (emission / activity)</span>
                 <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Description</span>
                 <span className="col-span-1" />
               </div>
@@ -376,14 +906,27 @@ export default function CarbonCreditPage() {
                       </div>
                       <p className="text-sm font-black text-gray-800 truncate">{s.name}</p>
                     </div>
-                    <div className="col-span-5">
-                      {s.formula ? (
-                        <code className="text-xs font-mono text-[#009B9E] bg-[#009B9E]/8 px-2 py-1 rounded-lg break-all">
-                          {s.formula}
-                        </code>
-                      ) : (
-                        <span className="text-xs text-gray-300 font-semibold">—</span>
-                      )}
+                    <div className="col-span-5 flex flex-col gap-1.5 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[8px] font-black text-[#009B9E] uppercase tracking-wider shrink-0 w-12">Emission</span>
+                        {s.formula ? (
+                          <code className="text-xs font-mono text-[#009B9E] bg-[#009B9E]/8 px-2 py-1 rounded-lg break-all">
+                            {s.formula}
+                          </code>
+                        ) : (
+                          <span className="text-xs text-gray-300 font-semibold">—</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[8px] font-black text-[#005A8C] uppercase tracking-wider shrink-0 w-12">Activity</span>
+                        {s.activityFormula ? (
+                          <code className="text-xs font-mono text-[#005A8C] bg-[#005A8C]/8 px-2 py-1 rounded-lg break-all">
+                            {s.activityFormula}
+                          </code>
+                        ) : (
+                          <span className="text-xs text-gray-300 font-semibold">—</span>
+                        )}
+                      </div>
                     </div>
                     <div className="col-span-3">
                       <p className="text-xs text-gray-500 font-semibold truncate">{s.description || '—'}</p>
@@ -749,31 +1292,79 @@ export default function CarbonCreditPage() {
               </div>
             </div>
 
-            {/* Year Selector + Controls */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Year</label>
-                <select
-                  value={allocYear}
-                  onChange={(e) => setAllocYear(Number(e.target.value))}
-                  className="px-4 py-2.5 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
-                >
-                  {[0, 1, 2, 3].map((offset) => {
-                    const y = currentYear - offset;
-                    return <option key={y} value={y}>{y}</option>;
-                  })}
-                </select>
+            {/* Compliance Cycle Control Panel */}
+            <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <RefreshCw size={15} className="text-[#005A8C]" />
+                  <span className="text-sm font-black text-[#005A8C]">Compliance Cycle</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Year</label>
+                  <select
+                    value={allocYear}
+                    onChange={(e) => setAllocYear(Number(e.target.value))}
+                    className="px-4 py-2 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
+                  >
+                    {[0, 1, 2, 3].map((offset) => {
+                      const y = currentYear - offset;
+                      return <option key={y} value={y}>{y}</option>;
+                    })}
+                  </select>
+                </div>
               </div>
-              <button
-                onClick={handleCalculateAllocations}
-                disabled={calculatingAllocs}
-                className="flex items-center gap-2 px-5 py-2.5 bg-[#009B9E] text-white text-sm font-bold rounded-2xl hover:bg-[#007d80] transition-all shadow-sm disabled:opacity-50 cursor-pointer"
-              >
-                {calculatingAllocs
-                  ? <><Loader2 size={15} className="animate-spin" /> Calculating...</>
-                  : <><RefreshCw size={15} /> Calculate &amp; Allocate {allocYear}</>
-                }
-              </button>
+
+              <div className="px-6 py-5 flex flex-col gap-5">
+                {/* Phase stepper */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  {CYCLE_STEPS.map((step, i) => {
+                    const curIdx = CYCLE_STEPS.findIndex((s) => s.phase === cycle?.phase);
+                    const done = curIdx > i;
+                    const active = curIdx === i;
+                    return (
+                      <div key={step.phase} className="flex items-center gap-1">
+                        <span className={`text-[11px] font-black px-3 py-1.5 rounded-full border transition-colors ${
+                          active ? "bg-[#005A8C] text-white border-[#005A8C]"
+                          : done ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                          : "bg-gray-50 text-gray-400 border-gray-100"
+                        }`}>
+                          {done && <Check size={11} className="inline mr-1 -mt-0.5" />}{step.label}
+                        </span>
+                        {i < CYCLE_STEPS.length - 1 && <ChevronDown size={12} className="text-gray-300 -rotate-90" />}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Next action button */}
+                {(() => {
+                  const current = CYCLE_STEPS.find((s) => s.phase === (cycle?.phase ?? "PENDING"));
+                  if (!current || !current.action) {
+                    return (
+                      <p className="text-xs font-bold text-emerald-600">
+                        Compliance cycle for {allocYear} is settled. Real emissions were deducted; any surplus carried forward to the next year.
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => runCycleAction(current.action, current.next)}
+                        disabled={runningAction !== null}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-[#009B9E] text-white text-sm font-bold rounded-2xl hover:bg-[#007d80] transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                      >
+                        {runningAction === current.action
+                          ? <><Loader2 size={15} className="animate-spin" /> Working...</>
+                          : <><RefreshCw size={15} /> {current.next}</>
+                        }
+                      </button>
+                      <span className="text-[11px] font-semibold text-gray-400">
+                        Current phase: <span className="font-black text-gray-600">{cycle?.phase ?? "PENDING"}</span>
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             {allocError && (
@@ -867,32 +1458,35 @@ export default function CarbonCreditPage() {
               ) : allocResults.length === 0 ? (
                 <div className="bg-white border border-gray-200/60 rounded-2xl p-8 text-center shadow-sm">
                   <p className="text-sm font-bold text-gray-300">
-                    No allocation results for {allocYear}. Click &ldquo;Calculate &amp; Allocate&rdquo; to run the China ETS formula.
+                    No compliance ledger for {allocYear} yet. Run &ldquo;Pre-allocate&rdquo; above to start the cycle.
                   </p>
                 </div>
               ) : (
                 <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
                   <div className="px-6 py-3 grid grid-cols-12 gap-2 border-b border-gray-100">
-                    <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Company</span>
-                    <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sector</span>
-                    <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Intensity</span>
-                    <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Benchmark</span>
-                    <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Deviation</span>
-                    <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Allocation (tCO₂e)</span>
+                    <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Company</span>
+                    <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Sector Benchmark</span>
+                    <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Co. Efficiency</span>
+                    <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Deviation</span>
+                    <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Pre-alloc</span>
+                    <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Final alloc</span>
+                    <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Surplus / Deficit</span>
+                    <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Status</span>
                   </div>
                   <div className="divide-y divide-gray-50">
                     {[...allocResults].sort((a, b) => (a.companyName ?? "").localeCompare(b.companyName ?? "")).map((alloc) => {
-                      const dev = Number(alloc.deviationPct);
-                      const isGood = dev < 0;
-                      const isBad = dev > 0;
-                      const devBg = isGood
+                      const dev = alloc.deviationPct != null ? Number(alloc.deviationPct) : null;
+                      const devBg = dev == null
+                        ? "bg-gray-50 text-gray-400 border-gray-100"
+                        : dev < 0
                         ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                        : isBad
+                        : dev > 0
                         ? "bg-red-50 text-red-600 border-red-100"
                         : "bg-gray-50 text-gray-500 border-gray-100";
+                      const sd = alloc.surplusDeficit != null ? Number(alloc.surplusDeficit) : null;
                       return (
                         <div key={alloc.id} className="px-6 py-4 grid grid-cols-12 gap-2 items-center hover:bg-gray-50/40 transition-colors">
-                          <div className="col-span-3 flex items-center gap-2 min-w-0">
+                          <div className="col-span-2 flex items-center gap-2 min-w-0">
                             <div className="w-8 h-8 shrink-0 rounded-xl bg-[#005A8C]/10 flex items-center justify-center">
                               <Building2 size={14} className="text-[#005A8C]" />
                             </div>
@@ -900,33 +1494,47 @@ export default function CarbonCreditPage() {
                               {alloc.companyName ?? `Company #${alloc.companyId}`}
                             </p>
                           </div>
-                          <div className="col-span-2">
-                            {alloc.sectorName ? (
-                              <span className="text-xs font-bold text-[#009B9E] bg-[#009B9E]/8 px-2.5 py-1 rounded-lg">
-                                {alloc.sectorName}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-300 font-semibold">—</span>
-                            )}
+                          <div className="col-span-1 text-right">
+                            <span className="text-xs font-bold text-gray-500 tabular-nums">
+                              {alloc.benchmarkIntensity != null ? Number(alloc.benchmarkIntensity).toFixed(4) : "—"}
+                            </span>
                           </div>
                           <div className="col-span-1 text-right">
                             <span className="text-xs font-bold text-gray-700 tabular-nums">
-                              {Number(alloc.intensity).toFixed(4)}
+                              {alloc.intensity != null ? Number(alloc.intensity).toFixed(4) : "—"}
                             </span>
                           </div>
-                          <div className="col-span-1 text-right">
+                          <div className="col-span-1 flex justify-end">
+                            {dev == null ? (
+                              <span className="text-xs text-gray-300 font-semibold">—</span>
+                            ) : (
+                              <span className={`text-[11px] font-extrabold px-2 py-1 rounded-full border ${devBg}`}>
+                                {dev > 0 ? "+" : ""}{dev.toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
+                          <div className="col-span-2 text-right">
                             <span className="text-xs font-bold text-gray-500 tabular-nums">
-                              {Number(alloc.benchmarkIntensity).toFixed(4)}
+                              {alloc.preAllocation != null ? Number(alloc.preAllocation).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
                             </span>
                           </div>
-                          <div className="col-span-2 flex justify-end">
-                            <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full border ${devBg}`}>
-                              {dev > 0 ? "+" : ""}{dev.toFixed(2)}%
-                            </span>
-                          </div>
-                          <div className="col-span-3 text-right">
+                          <div className="col-span-2 text-right">
                             <span className="text-sm font-black text-[#005A8C]">
-                              {Number(alloc.allocationAmount).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                              {alloc.allocationAmount != null ? Number(alloc.allocationAmount).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
+                            </span>
+                          </div>
+                          <div className="col-span-2 text-right">
+                            {sd == null ? (
+                              <span className="text-xs text-gray-300 font-semibold">—</span>
+                            ) : (
+                              <span className={`text-sm font-black ${sd >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                {sd >= 0 ? "+" : ""}{sd.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                              </span>
+                            )}
+                          </div>
+                          <div className="col-span-1 flex justify-end min-w-0">
+                            <span title={alloc.status ?? undefined} className="text-[9px] font-extrabold text-gray-500 bg-gray-50 border border-gray-100 px-2 py-1 rounded-full truncate max-w-full">
+                              {alloc.status ?? "—"}
                             </span>
                           </div>
                         </div>
@@ -967,14 +1575,24 @@ export default function CarbonCreditPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Formula</label>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Emission Formula</label>
                   <input
                     className="w-full px-4 py-3 text-sm font-mono border border-gray-200 rounded-xl outline-none focus:border-[#009B9E] focus:ring-2 focus:ring-[#009B9E]/10 transition-all"
                     value={editing.formula}
                     onChange={e => setEditing({ ...editing, formula: e.target.value })}
                     placeholder="e.g. {energy} * 0.233 + {fuel} * 2.68"
                   />
-                  <p className="text-[10px] text-gray-400 font-semibold mt-1">Use {`{variable}`} syntax for parameters</p>
+                  <p className="text-[10px] text-gray-400 font-semibold mt-1">Computes emissions (tCO₂e). Use {`{variable}`} syntax.</p>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Activity Formula</label>
+                  <input
+                    className="w-full px-4 py-3 text-sm font-mono border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                    value={editing.activityFormula ?? ''}
+                    onChange={e => setEditing({ ...editing, activityFormula: e.target.value })}
+                    placeholder="e.g. {crude_steel_tonnes}"
+                  />
+                  <p className="text-[10px] text-gray-400 font-semibold mt-1">Computes the activity level (output) — the denominator of intensity.</p>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Description</label>
@@ -1019,9 +1637,15 @@ export default function CarbonCreditPage() {
                 </button>
               </div>
 
-              <div className="p-4 bg-[#F28C28]/5 border border-[#F28C28]/10 rounded-xl mb-5">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Formula</p>
-                <code className="text-sm font-mono text-[#009B9E] break-all">{showEval.formula || '—'}</code>
+              <div className="p-4 bg-[#F28C28]/5 border border-[#F28C28]/10 rounded-xl mb-5 flex flex-col gap-3">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Emission Formula</p>
+                  <code className="text-sm font-mono text-[#009B9E] break-all">{showEval.formula || '—'}</code>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Activity Formula</p>
+                  <code className="text-sm font-mono text-[#005A8C] break-all">{showEval.activityFormula || '—'}</code>
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -1044,9 +1668,30 @@ export default function CarbonCreditPage() {
               </div>
 
               {evalResult !== null && (
-                <div className="mt-5 p-4 bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-xl">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Result</p>
-                  <p className="text-2xl font-black text-[#005A8C] mt-0.5">{evalResult.toLocaleString()} tCO₂e</p>
+                <div className="mt-5 grid grid-cols-3 gap-3">
+                  <div className="p-4 bg-[#009B9E]/5 border border-[#009B9E]/10 rounded-xl">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Emissions</p>
+                    <p className="text-lg font-black text-[#009B9E] mt-0.5">
+                      {evalResult.emission.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                    </p>
+                    <p className="text-[10px] text-gray-400 font-semibold">tCO₂e</p>
+                  </div>
+                  <div className="p-4 bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-xl">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Activity</p>
+                    <p className="text-lg font-black text-[#005A8C] mt-0.5">
+                      {evalResult.activity != null ? evalResult.activity.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}
+                    </p>
+                    <p className="text-[10px] text-gray-400 font-semibold">output units</p>
+                  </div>
+                  <div className="p-4 bg-[#F28C28]/5 border border-[#F28C28]/10 rounded-xl">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Intensity</p>
+                    <p className="text-lg font-black text-[#F28C28] mt-0.5">
+                      {evalResult.activity != null && evalResult.activity !== 0
+                        ? (evalResult.emission / evalResult.activity).toFixed(4)
+                        : "—"}
+                    </p>
+                    <p className="text-[10px] text-gray-400 font-semibold">tCO₂e / unit</p>
+                  </div>
                 </div>
               )}
 

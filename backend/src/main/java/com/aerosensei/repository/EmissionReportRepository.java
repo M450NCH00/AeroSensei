@@ -12,4 +12,7 @@ public interface EmissionReportRepository extends JpaRepository<EmissionReport, 
     List<EmissionReport> findByYear(Integer year);
     Optional<EmissionReport> findByCompanyIdAndYear(Long companyId, Integer year);
     List<EmissionReport> findByCompanyId(Long companyId);
+
+    List<EmissionReport> findByYearAndReportType(Integer year, String reportType);
+    Optional<EmissionReport> findByCompanyIdAndYearAndReportType(Long companyId, Integer year, String reportType);
 }

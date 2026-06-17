@@ -8,6 +8,7 @@ import net.objecthunter.exp4j.Expression;
 import net.objecthunter.exp4j.ExpressionBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,7 @@ public class SectorService {
         Sector s = opt.get();
         s.setName(updated.getName());
         s.setFormula(updated.getFormula());
+        s.setActivityFormula(updated.getActivityFormula());
         s.setDescription(updated.getDescription());
         return sectorRepository.save(s);
     }
@@ -45,6 +47,14 @@ public class SectorService {
     public Optional<Sector> get(Long id) { return sectorRepository.findById(id); }
 
     public void delete(Long id) { sectorRepository.deleteById(id); }
+
+    /** The sector assigned to the company owned by the given user, if any. */
+    @Transactional(readOnly = true)
+    public Optional<Sector> getSectorForCompany(String email) {
+        return companyRepository.findByUser_Email(email)
+                .map(Company::getSector)
+                .map(s -> { s.getName(); return s; }); // force lazy init within tx
+    }
 
     public void assignSectorToCompany(Long companyId, Long sectorId) {
         Company company = companyRepository.findById(companyId)
@@ -59,10 +69,23 @@ public class SectorService {
         companyRepository.save(company);
     }
 
+    /** Evaluate the emissions formula. */
     public double evaluateFormula(Long sectorId, Map<String, Object> parameters) {
         Sector sector = sectorRepository.findById(sectorId)
                 .orElseThrow(() -> new IllegalArgumentException("Sector not found"));
-        String formula = sector.getFormula();
+        return evaluateExpression(sector.getFormula(), parameters);
+    }
+
+    /** Evaluate the activity-level (output) formula, or null if none is defined. */
+    public Double evaluateActivityFormula(Long sectorId, Map<String, Object> parameters) {
+        Sector sector = sectorRepository.findById(sectorId)
+                .orElseThrow(() -> new IllegalArgumentException("Sector not found"));
+        String formula = sector.getActivityFormula();
+        if (formula == null || formula.isBlank()) return null;
+        return evaluateExpression(formula, parameters);
+    }
+
+    private double evaluateExpression(String formula, Map<String, Object> parameters) {
         if (formula == null) throw new IllegalArgumentException("No formula defined for sector");
 
         // Extract variable names from {variable} placeholders

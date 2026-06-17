@@ -13,8 +13,13 @@ public class Sector {
     @Column(nullable = false, unique = true)
     private String name;
 
+    // Emissions formula (tCO2e output)
     @Column(columnDefinition = "TEXT")
     private String formula;
+
+    // Activity-level / output formula (the denominator of intensity)
+    @Column(name = "activity_formula", columnDefinition = "TEXT")
+    private String activityFormula;
 
     @Column(columnDefinition = "TEXT")
     private String description;
@@ -27,6 +32,9 @@ public class Sector {
 
     public String getFormula() { return formula; }
     public void setFormula(String formula) { this.formula = formula; }
+
+    public String getActivityFormula() { return activityFormula; }
+    public void setActivityFormula(String activityFormula) { this.activityFormula = activityFormula; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }

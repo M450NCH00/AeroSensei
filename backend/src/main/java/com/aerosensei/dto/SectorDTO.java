@@ -4,6 +4,7 @@ public class SectorDTO {
     private Long id;
     private String name;
     private String formula;
+    private String activityFormula;
     private String description;
 
     public Long getId() { return id; }
@@ -14,6 +15,9 @@ public class SectorDTO {
 
     public String getFormula() { return formula; }
     public void setFormula(String formula) { this.formula = formula; }
+
+    public String getActivityFormula() { return activityFormula; }
+    public void setActivityFormula(String activityFormula) { this.activityFormula = activityFormula; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
