@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS sensor_registry
     );
 
 -- Index the geohash column for fast prefix-based spatial queries
-CREATE INDEX IF NOT EXISTS idx_sensor_geohash ON sensor_registry(geohash);
+CREATE INDEX IF NOT EXISTS idx_sensor_geohash ON sensor_registry (geohash varchar_pattern_ops);
 
 -- Insert initial test data
 INSERT INTO sensor_registry
