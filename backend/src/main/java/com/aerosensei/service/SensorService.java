@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -18,12 +19,15 @@ import java.util.concurrent.TimeUnit;
 import java.time.Instant;
 
 import com.aerosensei.entity.SensorRegistry;
+import com.aerosensei.entity.CompanySite;
 import com.aerosensei.repository.SensorRegistryRepository;
+import com.aerosensei.repository.CompanySiteRepository;
 import com.aerosensei.dto.SensorAverageDTO;
 import com.aerosensei.dto.ClusterAverageDTO;
 import com.aerosensei.dto.CompanyDashboardSensorDTO;
 import com.aerosensei.dto.SiteHistoricalDataDTO;
 import com.aerosensei.dto.SiteSensor15MinDTO;
+import com.aerosensei.dto.SensorRegistrationDTO;
 
 
 
@@ -39,6 +43,9 @@ public class SensorService {
 
     @Autowired
     private SensorRegistryRepository registryRepository;
+
+    @Autowired
+    private CompanySiteRepository companySiteRepository;
 
     //redis properties
     @Autowired
@@ -472,4 +479,79 @@ public class SensorService {
 
          return dto;
      }
+
+    // ==========================================
+    // REGISTER A NEW SENSOR
+    // ==========================================
+    @Transactional
+    public SensorRegistry registerSensor(SensorRegistrationDTO dto, Authentication authentication) {
+        String userEmail = authentication.getName();
+        boolean isGovernment = authentication.getAuthorities().stream()
+                .map(auth -> auth.getAuthority().toUpperCase())
+                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+
+        // 1. Check if the Sensor ID is already taken
+        if (registryRepository.existsBySensorId(dto.getSensorId())) {
+            throw new RuntimeException("Sensor ID '" + dto.getSensorId() + "' is already registered.");
+        }
+
+        // 2. Verify Ownership (Government skips this check)
+        if (!isGovernment) {
+            boolean ownsSite = registryRepository.existsBySiteIdAndUserEmail(dto.getSiteId(), userEmail);
+            if (!ownsSite) {
+                throw new RuntimeException("Access Denied: You do not own Site ID " + dto.getSiteId());
+            }
+        }
+
+        // 3. Fetch the Site Reference
+        CompanySite site = companySiteRepository.findById(dto.getSiteId())
+                .orElseThrow(() -> new RuntimeException("Site ID not found."));
+
+        // 4. Calculate Geohash automatically (Precision 9 is roughly 4.7m x 4.7m)
+        String generatedGeohash = GeoHash.encodeHash(
+                dto.getLatitude().doubleValue(),
+                dto.getLongitude().doubleValue(),
+                9
+        );
+
+        // 5. Build and Save the Entity
+        SensorRegistry newSensor = new SensorRegistry();
+        newSensor.setSensorId(dto.getSensorId());
+        newSensor.setSite(site);
+        newSensor.setLatitude(dto.getLatitude());
+        newSensor.setLongitude(dto.getLongitude());
+        newSensor.setGeohash(generatedGeohash);
+        newSensor.setStatus("active");
+        newSensor.setInstallationDate(java.time.LocalDate.now());
+
+        logs.info("Registering new sensor: {} at site: {} with Geohash: {}", dto.getSensorId(), dto.getSiteId(), generatedGeohash);
+        return registryRepository.save(newSensor);
+    }
+
+    // ==========================================
+    // DELETE A SENSOR
+    // ==========================================
+    @Transactional
+    public void deleteSensor(String sensorId, Authentication authentication) {
+        String userEmail = authentication.getName();
+        boolean isGovernment = authentication.getAuthorities().stream()
+                .map(auth -> auth.getAuthority().toUpperCase())
+                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+
+        // 1. Check if sensor exists
+        if (!registryRepository.existsBySensorId(sensorId)) {
+            throw new RuntimeException("Sensor ID '" + sensorId + "' does not exist.");
+        }
+
+        // 2. Verify Ownership (Government skips this check)
+        if (!isGovernment) {
+            boolean ownsSensor = registryRepository.existsBySensorIdAndUserEmail(sensorId, userEmail);
+            if (!ownsSensor) {
+                throw new RuntimeException("Access Denied: You do not own Sensor '" + sensorId + "'");
+            }
+        }
+
+        logs.info("Deleting sensor: {} | User: {}", sensorId, userEmail);
+        registryRepository.deleteBySensorId(sensorId);
+    }
 }

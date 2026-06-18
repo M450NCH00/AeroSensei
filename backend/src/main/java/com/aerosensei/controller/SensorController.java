@@ -1,5 +1,6 @@
 package com.aerosensei.controller;
 
+import com.aerosensei.dto.SensorRegistrationDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.math.BigDecimal;
+import java.util.Map;
 
 import com.aerosensei.service.SensorService;
 import com.aerosensei.dto.ClusterAverageDTO;
@@ -60,5 +62,27 @@ public class SensorController {
 
         List<SiteSensor15MinDTO> data = sensorService.getSiteSensors15MinAverage(siteId, authentication);
         return ResponseEntity.ok(data);
+    }
+
+    // URL: POST http://localhost:8080/api/sensors/register
+    @PostMapping("/register")
+    public ResponseEntity<?> registerSensor(@RequestBody SensorRegistrationDTO dto, Authentication authentication) {
+        try {
+            sensorService.registerSensor(dto, authentication);
+            return ResponseEntity.ok().body(Map.of("message", "Sensor registered successfully!", "sensorId", dto.getSensorId()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // URL: DELETE http://localhost:8080/api/sensors/{sensorId}
+    @DeleteMapping("/{sensorId}")
+    public ResponseEntity<?> deleteSensor(@PathVariable String sensorId, Authentication authentication) {
+        try {
+            sensorService.deleteSensor(sensorId, authentication);
+            return ResponseEntity.ok().body(Map.of("message", "Sensor deleted successfully!", "sensorId", sensorId));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 }

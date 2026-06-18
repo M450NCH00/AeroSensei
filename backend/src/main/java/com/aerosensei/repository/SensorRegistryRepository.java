@@ -75,5 +75,24 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
     @Query(value = "SELECT CAST(sr.id AS VARCHAR) FROM sensor_registry sr " +
             "WHERE sr.site_id = :siteId", nativeQuery = true)
     List<String> findSensorUuidsBySiteId(@Param("siteId") Integer siteId);
+
+    // ==========================================
+    // SECURITY OWNERSHIP CHECKS
+    // ==========================================
+
+    // Checks if a Site belongs to a specific user's company
+    @Query(value = "SELECT EXISTS (SELECT 1 FROM company_sites cs " +
+            "JOIN companies c ON cs.company_id = c.id " +
+            "JOIN users u ON c.user_id = u.id " +
+            "WHERE cs.id = :siteId AND u.email = :email)", nativeQuery = true)
+    boolean existsBySiteIdAndUserEmail(@Param("siteId") Integer siteId, @Param("email") String email);
+
+    // Checks if a Sensor belongs to a specific user's company
+    @Query(value = "SELECT EXISTS (SELECT 1 FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id " +
+            "JOIN users u ON c.user_id = u.id " +
+            "WHERE sr.sensor_id = :sensorId AND u.email = :email)", nativeQuery = true)
+    boolean existsBySensorIdAndUserEmail(@Param("sensorId") String sensorId, @Param("email") String email);
 }
 

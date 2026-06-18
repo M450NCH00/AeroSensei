@@ -4,19 +4,19 @@ import java.math.BigDecimal;
 
 public class SensorRegistrationDTO {
     private String sensorId;
-    private String locationName;
+    private Integer siteId;
     private BigDecimal latitude;
     private BigDecimal longitude;
 
-    // Default Constructor
+    // Constructors
     public SensorRegistrationDTO() {}
 
     // Getters and Setters
     public String getSensorId() { return sensorId; }
     public void setSensorId(String sensorId) { this.sensorId = sensorId; }
 
-    public String getLocationName() { return locationName; }
-    public void setLocationName(String locationName) { this.locationName = locationName; }
+    public Integer getSiteId() { return siteId; }
+    public void setSiteId(Integer siteId) { this.siteId = siteId; }
 
     public BigDecimal getLatitude() { return latitude; }
     public void setLatitude(BigDecimal latitude) { this.latitude = latitude; }
