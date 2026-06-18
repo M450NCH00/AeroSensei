@@ -188,8 +188,23 @@ services:
     restart: unless-stopped
     ports:
       - "5001:5001"
+    depends_on:
+      backend:
+        condition: service_healthy
     environment:
+      # --- LLM provider (configurable; switch to bedrock on the AWS migration) ---
+      - LLM_PROVIDER=ollama
+      # IMPORTANT: must be a tool-capable model. `ollama pull qwen2.5:7b-instruct` first.
+      - LLM_MODEL=qwen2.5:7b-instruct
       - OLLAMA_HOST=http://host.docker.internal:11434
+      - LLM_MAX_TOOL_ITERATIONS=5
+      # --- Tool execution target (existing backend) ---
+      - BACKEND_BASE_URL=http://backend:8081
+      # --- Auth: MUST match the backend's JWT_SECRET ---
+      - JWT_SECRET=your-hackathon-super-secret-key-xyz123
+      # Regulators carry the 'Government' role; mirror the backend's hasAnyRole('GOVERNMENT','ADMIN').
+      - AGENT_ALLOWED_ROLES=GOVERNMENT,ADMIN
+      - FRONTEND_ORIGIN=http://localhost:3000
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

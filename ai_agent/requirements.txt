@@ -1,0 +1,6 @@
+flask==3.1.0
+flask-cors==5.0.0
+ollama==0.4.7
+requests==2.32.3
+PyJWT==2.10.1
+# boto3 is only needed for the future Bedrock provider; install it then.
