@@ -4,7 +4,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Map, Leaf, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut } from "lucide-react";
 import axiosInstance from "../api/axiosInstance";
 
 export default function Sidebar() {
@@ -15,6 +15,7 @@ export default function Sidebar() {
     { name: "AI Assistant", href: "/dashboard/aiassistant", icon: Bot },
     { name: "Sensor Sites", href: "/dashboard/sites", icon: Map },
     { name: "Carbon Market", href: "/dashboard/carbon", icon: Leaf },
+    { name: "Carbon Credit", href: "/dashboard/carbon-credit", icon: TrendingUp },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
 

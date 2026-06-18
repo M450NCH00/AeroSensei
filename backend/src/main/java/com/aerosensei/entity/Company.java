@@ -1,5 +1,6 @@
 package com.aerosensei.entity;
 
+import com.aerosensei.entity.Sector;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -19,12 +20,6 @@ public class Company {
     @Column(name = "company_name")
     private String companyName;
 
-    @Column(name = "industry_type")
-    private String industryType;
-
-    @Column(name = "scale")
-    private String scale;
-
     @Column(name = "carbon_credits", nullable = false)
     private BigDecimal carbonCredits;
 
@@ -33,6 +28,10 @@ public class Company {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sector_id")
+    private Sector sector;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -43,16 +42,13 @@ public class Company {
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }
 
-    public String getIndustryType() { return industryType; }
-    public void setIndustryType(String industryType) { this.industryType = industryType; }
-
-    public String getScale() { return scale; }
-    public void setScale(String scale) { this.scale = scale; }
-
     public BigDecimal getCarbonCredits() { return carbonCredits; }
     public void setCarbonCredits(BigDecimal carbonCredits) { this.carbonCredits = carbonCredits; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public Sector getSector() { return sector; }
+    public void setSector(Sector sector) { this.sector = sector; }
 }

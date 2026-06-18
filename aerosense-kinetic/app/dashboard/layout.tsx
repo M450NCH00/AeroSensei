@@ -6,6 +6,7 @@ import { AuthProvider } from "../context/AuthContext";
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider> 
+      
       <AuthGuard> 
         
         <div className="flex h-screen bg-[#F8FAFC] font-sans text-[#1D1D1F] overflow-hidden">

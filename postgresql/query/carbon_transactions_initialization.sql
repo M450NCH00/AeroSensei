@@ -24,43 +24,31 @@ series AS (
         INTERVAL '2 hours 24 minutes'
     ) AS ts
 ),
-companies AS (
+-- All seeded companies, indexed 0..n-1, so the trade rotation adapts to
+-- whatever companies exist instead of relying on specific seed accounts.
+company_list AS (
     SELECT
-        (SELECT id FROM companies WHERE user_id = (SELECT id FROM users WHERE email = 'company1@example.com')) AS c1,
-        (SELECT id FROM companies WHERE user_id = (SELECT id FROM users WHERE email = 'company2@example.com')) AS c2,
-        (SELECT id FROM companies WHERE user_id = (SELECT id FROM users WHERE email = 'company3@example.com')) AS c3,
-        (SELECT id FROM users WHERE email = 'company1@example.com') AS u1,
-        (SELECT id FROM users WHERE email = 'company2@example.com') AS u2,
-        (SELECT id FROM users WHERE email = 'company3@example.com') AS u3
+        id,
+        user_id,
+        (row_number() OVER (ORDER BY id) - 1) AS idx
+    FROM companies
+),
+cnt AS (
+    SELECT count(*)::int AS n FROM company_list
 )
 INSERT INTO carbon_transactions (from_company_id, to_company_id, amount, price, initiated_by, created_at)
 SELECT
-    CASE (s.rn % 6)
-        WHEN 0 THEN c.c2
-        WHEN 1 THEN c.c3
-        WHEN 2 THEN c.c1
-        WHEN 3 THEN c.c2
-        WHEN 4 THEN c.c3
-        ELSE        c.c1
-    END,
-    CASE (s.rn % 6)
-        WHEN 0 THEN c.c1
-        WHEN 1 THEN c.c2
-        WHEN 2 THEN c.c3
-        WHEN 3 THEN c.c3
-        WHEN 4 THEN c.c1
-        ELSE        c.c2
-    END,
+    fc.id,                              -- seller (from)
+    tc.id,                              -- buyer (to), always a different company
     calc.amt,
     ROUND(calc.amt * calc.ppc, 2),
-    CASE (s.rn % 3)
-        WHEN 0 THEN c.u1
-        WHEN 1 THEN c.u2
-        ELSE        c.u3
-    END,
+    fc.user_id,                         -- initiated by the seller's owner
     s.ts
-FROM series s, companies c,
-LATERAL (
+FROM series s
+CROSS JOIN cnt
+JOIN company_list fc ON fc.idx = (s.rn % cnt.n)
+JOIN company_list tc ON tc.idx = ((s.rn + 1 + ((s.rn / cnt.n) % (cnt.n - 1))) % cnt.n)
+CROSS JOIN LATERAL (
     SELECT
         ROUND((50 + random() * 450)::numeric, 2) AS amt,
         GREATEST(5.00, ROUND((

@@ -6,8 +6,8 @@ import axiosInstance from "@/app/api/axiosInstance";
 
 interface User {
   email: string;
-  role: string[];
-  permissions: string[];
+  role: string | string[];
+  permissions?: string[];
 }
 
 interface AuthContextType {
@@ -40,8 +40,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession();
   }, []);
 
-  const hasPermission = (permission: string) => user?.permissions.includes(permission) ?? false;
-  const hasRole = (role: string) => user?.role.includes(role) ?? false;
+  const normalizeRoles = (): string[] => {
+    if (!user?.role) return [];
+    if (Array.isArray(user.role)) {
+      return user.role.map((value) => value.toString().trim().toUpperCase());
+    }
+    return [user.role.toString().trim().toUpperCase()];
+  };
+
+  const hasPermission = (permission: string) => {
+    const permissions = user?.permissions ?? [];
+    return permissions.some((value) => value.toString().trim().toUpperCase() === permission.trim().toUpperCase());
+  };
+
+  const hasRole = (role: string) => normalizeRoles().includes(role.trim().toUpperCase());
 
   return (
     <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, hasPermission, hasRole }}>
