@@ -126,7 +126,6 @@ export default function CarbonCreditPage() {
   const [companyPosition, setCompanyPosition] = useState<CompliancePosition | null>(null);
   const [companyMyReports, setCompanyMyReports] = useState<EmissionReportResponse[]>([]);
   const [companyMyAllocations, setCompanyMyAllocations] = useState<AllocationResponse[]>([]);
-  const [companyReportYear, setCompanyReportYear] = useState<number>(2025);
   const [companyReportType, setCompanyReportType] = useState<"MIDYEAR" | "FINAL">("FINAL");
   const [companyParamValues, setCompanyParamValues] = useState<Record<string, string>>({});
   const [companyActivityLevel, setCompanyActivityLevel] = useState("");
@@ -140,6 +139,11 @@ export default function CarbonCreditPage() {
   // Anchored to the latest compliance year that has seeded data (2025 is the
   // live demo year; 2022-2024 are settled history). The dropdowns show 2022-2025.
   const currentYear = 2025;
+
+  // Companies may only submit a report for the current open compliance year (the
+  // year the government has a cycle running for). The compliance-position viewer
+  // below uses its own year so companies can still browse past-year history.
+  const [positionYear, setPositionYear] = useState<number>(currentYear);
 
   const [companiesYear, setCompaniesYear] = useState<number>(currentYear);
   const [companiesReports, setCompaniesReports] = useState<EmissionReportResponse[]>([]);
@@ -411,12 +415,12 @@ export default function CarbonCreditPage() {
   useEffect(() => { if (hasRole('COMPANY')) { fetchCompanyData(); } }, []);
 
   useEffect(() => {
-    if (hasRole('COMPANY')) fetchCompanyPosition(companyReportYear);
+    if (hasRole('COMPANY')) fetchCompanyPosition(positionYear);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyReportYear]);
+  }, [positionYear]);
 
   useEffect(() => {
-    const existing = companyMyReports.find(r => r.year === companyReportYear && r.reportType === companyReportType);
+    const existing = companyMyReports.find(r => r.year === currentYear && r.reportType === companyReportType);
     if (existing) {
       setCompanyActivityLevel(String(existing.activityLevel));
       setCompanyVerifiedEmissions(String(existing.verifiedEmissions));
@@ -432,7 +436,7 @@ export default function CarbonCreditPage() {
       setCompanyVerifiedEmissions("");
       setCompanyParamValues({});
     }
-  }, [companyReportYear, companyReportType, companyMyReports]);
+  }, [companyReportType, companyMyReports]);
 
   const handleCompanySubmitReport = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -440,7 +444,7 @@ export default function CarbonCreditPage() {
     setCompanyReportError(null);
     setCompanyReportSuccess(null);
     try {
-      const payload: Record<string, unknown> = { year: companyReportYear, reportType: companyReportType };
+      const payload: Record<string, unknown> = { year: currentYear, reportType: companyReportType };
       if (companyMySector) {
         const parameters: Record<string, number> = {};
         requiredCompanyVars.forEach(v => { parameters[v] = parseFloat(companyParamValues[v] ?? '') || 0; });
@@ -454,10 +458,11 @@ export default function CarbonCreditPage() {
       const label = companyReportType === 'MIDYEAR' ? 'Mid-year' : 'Final';
       setCompanyReportSuccess(
         companyMySector
-          ? `${label} report for ${companyReportYear} submitted — ${Number(r.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e over ${Number(r.activityLevel).toLocaleString(undefined, { maximumFractionDigits: 1 })} output.`
-          : `${label} report for ${companyReportYear} submitted successfully.`
+          ? `${label} report for ${currentYear} submitted — ${Number(r.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e over ${Number(r.activityLevel).toLocaleString(undefined, { maximumFractionDigits: 1 })} output.`
+          : `${label} report for ${currentYear} submitted successfully.`
       );
-      await Promise.all([fetchCompanyData(), fetchCompanyPosition(companyReportYear)]);
+      setPositionYear(currentYear);
+      await Promise.all([fetchCompanyData(), fetchCompanyPosition(currentYear)]);
     } catch (err: any) {
       setCompanyReportError(err.response?.data?.message ?? err.response?.data ?? 'Failed to submit report.');
     } finally {
@@ -562,16 +567,10 @@ export default function CarbonCreditPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Reporting Year</label>
-                      <select
-                        value={companyReportYear}
-                        onChange={(e) => setCompanyReportYear(Number(e.target.value))}
-                        className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
-                      >
-                        {[0, 1, 2, 3].map((offset) => {
-                          const y = currentYear - offset;
-                          return <option key={y} value={y}>{y}</option>;
-                        })}
-                      </select>
+                      <div className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl bg-gray-50 text-gray-700 flex items-center justify-between">
+                        <span>{currentYear}</span>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Current cycle</span>
+                      </div>
                     </div>
                     <div>
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Report Type</label>
@@ -597,9 +596,9 @@ export default function CarbonCreditPage() {
                     </div>
                   </div>
 
-                  {companyMyReports.find(r => r.year === companyReportYear && r.reportType === companyReportType) && (
+                  {companyMyReports.find(r => r.year === currentYear && r.reportType === companyReportType) && (
                     <p className="text-[10px] font-bold text-[#F28C28]">
-                      Existing {companyReportType === 'MIDYEAR' ? 'mid-year' : 'final'} report found for {companyReportYear} — submitting will update it.
+                      Existing {companyReportType === 'MIDYEAR' ? 'mid-year' : 'final'} report found for {currentYear} — submitting will update it.
                     </p>
                   )}
 
@@ -693,7 +692,7 @@ export default function CarbonCreditPage() {
                     type="submit" disabled={isSubmittingCompanyReport}
                     className="w-full py-3.5 bg-[#005A8C] text-white font-bold rounded-2xl hover:bg-[#004a73] transition-all disabled:opacity-50 cursor-pointer"
                   >
-                    {isSubmittingCompanyReport ? 'Submitting...' : `Submit ${companyReportYear} ${companyReportType === 'MIDYEAR' ? 'Mid-year' : 'Final'} Report`}
+                    {isSubmittingCompanyReport ? 'Submitting...' : `Submit ${currentYear} ${companyReportType === 'MIDYEAR' ? 'Mid-year' : 'Final'} Report`}
                   </button>
                 </form>
               </div>
@@ -706,7 +705,7 @@ export default function CarbonCreditPage() {
               <div className="flex items-center gap-3">
                 <Leaf size={18} className="text-[#009B9E]" />
                 <div>
-                  <h2 className="font-black text-base text-[#009B9E]">Compliance Position — {companyReportYear}</h2>
+                  <h2 className="font-black text-base text-[#009B9E]">Compliance Position — {positionYear}</h2>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Allowances vs. verified emissions</p>
                 </div>
               </div>
@@ -717,8 +716,8 @@ export default function CarbonCreditPage() {
                   </span>
                 )}
                 <select
-                  value={companyReportYear}
-                  onChange={(e) => setCompanyReportYear(Number(e.target.value))}
+                  value={positionYear}
+                  onChange={(e) => setPositionYear(Number(e.target.value))}
                   className="px-3 py-1.5 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
                 >
                   {[0, 1, 2, 3].map((offset) => {
@@ -730,7 +729,7 @@ export default function CarbonCreditPage() {
             </div>
             <div className="p-7">
               {!companyPosition ? (
-                <p className="text-sm font-bold text-gray-300">No compliance data for {companyReportYear} yet.</p>
+                <p className="text-sm font-bold text-gray-300">No compliance data for {positionYear} yet.</p>
               ) : (
                 <>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
@@ -884,7 +883,7 @@ export default function CarbonCreditPage() {
                   : "text-gray-500 hover:text-[#005A8C]"
               }`}
             >
-              {tab === "companies" ? "Companies" : tab === "sectors" ? "Sector Formulas" : "Allocations"}
+              {tab === "companies" ? "Companies" : tab === "sectors" ? "Sector Formulas" : "Phases"}
             </button>
           ))}
         </div>
@@ -1249,7 +1248,7 @@ export default function CarbonCreditPage() {
             <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
                 <FileText size={15} className="text-[#005A8C]" />
-                <span className="text-sm font-black text-[#005A8C]">China ETS Allocation Formula</span>
+                <span className="text-sm font-black text-[#005A8C]">Vietnam ETS Allocation Formula</span>
               </div>
               <div className="px-6 py-5 grid grid-cols-3 gap-6">
 
