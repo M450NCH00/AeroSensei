@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -37,8 +38,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     String token = cookie.getValue();
                     if (jwtUtils.validateToken(token)) {
                         String email = jwtUtils.extractEmail(token);
+                        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+                        List<String> roles = jwtUtils.extractRoles(token);
+                        for (String role : roles) {
+                            authorities.add(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()));
+                        }
+                        if (authorities.isEmpty()) {
+                            authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+                        }
                         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                                email, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+                                email, null, authorities);
                         SecurityContextHolder.getContext().setAuthentication(auth);
                     } else {
                         log.warn("JWT validation failed for {} {}", request.getMethod(), request.getRequestURI());
