@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS role_permissions (
     can_manage_users BOOLEAN DEFAULT FALSE,
     can_delete_records BOOLEAN DEFAULT FALSE,
 
+    -- Sensor Management Permissions
+    can_add_sensors BOOLEAN DEFAULT TRUE,
+    can_delete_sensors BOOLEAN DEFAULT TRUE,
+
     -- Audit trail
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -25,9 +29,11 @@ INSERT INTO role_permissions (
     can_edit_sensor,
     can_edit_metadata,
     can_manage_users,
-    can_delete_records
+    can_delete_records,
+    can_add_sensors,
+    can_delete_sensors
 )
 VALUES
-    ('Government', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
-    ('Company', TRUE, TRUE, FALSE, FALSE, FALSE, FALSE)
+    ('Government', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
+    ('Company', TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE)
 ON CONFLICT (role_name) DO NOTHING;

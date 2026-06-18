@@ -72,6 +72,18 @@ public class JwtUtils {
                 .getSubject();
     }
 
+    @SuppressWarnings("unchecked")
+    public List<String> extractRoles(String token) {
+        Object roles = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get("roles");
+        if (roles instanceof List<?>) return (List<String>) roles;
+        return List.of();
+    }
+
     public boolean validateToken(String token) {
         try {
             Jwts.parser().verifyWith(key).build().parseSignedClaims(token);

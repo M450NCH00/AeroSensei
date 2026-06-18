@@ -14,6 +14,10 @@ import java.util.Optional;
 public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, Long> {
     Optional<SensorRegistry> findBySensorId(String sensorId);
 
+    boolean existsBySensorId(String sensorId);
+
+    Optional<SensorRegistry> deleteBySensorId(String sensorId);
+
     // Used by the area finding function
     @Query("SELECT s FROM SensorRegistry s WHERE " +
             "s.latitude BETWEEN :minLat AND :maxLat AND " +

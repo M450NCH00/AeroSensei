@@ -135,10 +135,10 @@ public class CarbonTradingService {
                         c.getId(),
                         c.getUser().getEmail(),
                         c.getCompanyName(),
-                        c.getIndustryType(),
-                        c.getScale(),
                         c.getCarbonCredits(),
-                        netChange.getOrDefault(c.getId(), BigDecimal.ZERO)
+                        netChange.getOrDefault(c.getId(), BigDecimal.ZERO),
+                        c.getSector() != null ? c.getSector().getId() : null,
+                        c.getSector() != null ? c.getSector().getName() : null
                 ))
                 .sorted(Comparator.comparing(CompanyOverviewResponse::getCurrentCredits).reversed())
                 .collect(Collectors.toList());

@@ -5,10 +5,8 @@ import { AuthProvider } from "../context/AuthContext";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    // 1. The Brain wraps everything
     <AuthProvider> 
       
-      // 2. The Bouncer protects the inner content
       <AuthGuard> 
         
         <div className="flex h-screen bg-[#F8FAFC] font-sans text-[#1D1D1F] overflow-hidden">
