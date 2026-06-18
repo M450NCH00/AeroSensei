@@ -23,6 +23,7 @@ import com.aerosensei.dto.SensorAverageDTO;
 import com.aerosensei.dto.ClusterAverageDTO;
 import com.aerosensei.dto.CompanyDashboardSensorDTO;
 import com.aerosensei.dto.SiteHistoricalDataDTO;
+import com.aerosensei.dto.SiteSensor15MinDTO;
 
 
 
@@ -197,6 +198,52 @@ public class SensorService {
         if (zoomLevel <= 15) return 7; // Neighborhoods
         if (zoomLevel <= 17) return 8; // City Blocks
         return 9;                      // Zoomed all the way in (Raw Sensors)
+    }
+
+    // ==========================================
+    // GET 15-MINUTE AVERAGE FOR ALL SENSORS AT A SITE
+    // ==========================================
+    public List<SiteSensor15MinDTO> getSiteSensors15MinAverage(Integer siteId, Authentication authentication) {
+        String userEmail = authentication.getName();
+
+        // 1. Check Role
+        boolean isGovernment = authentication.getAuthorities().stream()
+                .map(auth -> auth.getAuthority().toUpperCase())
+                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+
+        logs.info("Fetching 15m averages for Site: {} | User: {} | isGov: {}", siteId, userEmail, isGovernment);
+
+        // 2. Fetch the metadata array based on role (reusing your existing repository queries!)
+        List<Object[]> results;
+        if (isGovernment) {
+            results = registryRepository.findAllSensorsBySiteId(siteId);
+        } else {
+            results = registryRepository.findSensorsBySiteAndEmail(userEmail, siteId);
+        }
+
+        // 3. Map the data and fetch the cached 15-min averages
+        List<SiteSensor15MinDTO> responseList = new ArrayList<>();
+
+        for (Object[] row : results) {
+            SiteSensor15MinDTO dto = new SiteSensor15MinDTO();
+            dto.setCompanyName((String) row[0]);
+            dto.setSiteName((String) row[1]);
+            dto.setSensorId((String) row[2]);
+            dto.setLatitude((BigDecimal) row[3]);
+            dto.setLongitude((BigDecimal) row[4]);
+            dto.setStatus((String) row[5]);
+
+            // This is super fast because it hits your 10-minute Redis cache first.
+            SensorAverageDTO avg15m = getRealTimeAverage(dto.getSensorId());
+
+            dto.setPm25(avg15m.getPm25());
+            dto.setPm10(avg15m.getPm10());
+            dto.setLastCalculated(avg15m.getLastCalculated());
+
+            responseList.add(dto);
+        }
+
+        return responseList;
     }
 
     // clustering area sensor function
