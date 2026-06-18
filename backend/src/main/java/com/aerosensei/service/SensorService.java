@@ -23,7 +23,7 @@ import com.aerosensei.entity.CompanySite;
 import com.aerosensei.repository.SensorRegistryRepository;
 import com.aerosensei.repository.CompanySiteRepository;
 import com.aerosensei.dto.SensorAverageDTO;
-import com.aerosensei.dto.ClusterAverageDTO;
+import com.aerosensei.dto.ClusterMaxDTO;
 import com.aerosensei.dto.CompanyDashboardSensorDTO;
 import com.aerosensei.dto.SiteHistoricalDataDTO;
 import com.aerosensei.dto.SiteSensor15MinDTO;
@@ -37,6 +37,12 @@ import com.github.davidmoten.geo.GeoHash;
 public class SensorService {
 
     private static final Logger logs = LoggerFactory.getLogger(SensorService.class);
+
+    public enum SiteState {
+        SAFE,
+        WARNING,
+        BREACHED
+    }
 
     @Autowired
     private InfluxDBClient influxDBClient;
@@ -254,7 +260,7 @@ public class SensorService {
     }
 
     // clustering area sensor function
-    public List<ClusterAverageDTO>  getClusteredAveragesInArea(
+    public List<ClusterMaxDTO>  getClusteredMaxInArea(
             BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon, int zoom, Authentication authentication) {
 
         //Identify who is asking
@@ -296,16 +302,20 @@ public class SensorService {
             clusteredSensors.computeIfAbsent(prefix, k -> new ArrayList<>()).add(sensor);
         }
 
-        // Calculate the centroids and averages for each cluster
-        List<ClusterAverageDTO> clusteredResults = new ArrayList<>();
+        // Calculate the centroids and maximums for each cluster
+        List<ClusterMaxDTO> clusteredResults = new ArrayList<>();
 
         for (Map.Entry<String, List<SensorRegistry>> entry : clusteredSensors.entrySet()) {
             List<SensorRegistry> cellSensors = entry.getValue();
 
+            // Used for calculating the physical centroid
             double sumLat = 0;
             double sumLon = 0;
-            double sumPm25 = 0;
-            double sumPm10 = 0;
+
+            // Track the maximum PM values in this cluster
+            double maxPm25 = -1.0;
+            double maxPm10 = -1.0;
+
             int validSensorCount = 0;
 
             for (SensorRegistry sensor : cellSensors) {
@@ -318,8 +328,9 @@ public class SensorService {
                 sumLat += sensor.getLatitude().doubleValue();
                 sumLon += sensor.getLongitude().doubleValue();
 
-                sumPm25 += liveData.getPm25();
-                sumPm10 += liveData.getPm10();
+                // Compare and store the highest PM value found in this cluster
+                maxPm25 = Math.max(maxPm25, liveData.getPm25());
+                maxPm10 = Math.max(maxPm10, liveData.getPm10());
 
                 validSensorCount++;
             }
@@ -331,15 +342,16 @@ public class SensorService {
             double centroidLat = sumLat / validSensorCount;
             double centroidLon = sumLon / validSensorCount;
 
-            double avgPm25 = Math.round((sumPm25 / validSensorCount) * 100.0) / 100.0;
-            double avgPm10 = Math.round((sumPm10 / validSensorCount) * 100.0) / 100.0;
+            // Round the maximum values to 2 decimal places (no longer dividing by count)
+            double finalMaxPm25 = Math.round(maxPm25 * 100.0) / 100.0;
+            double finalMaxPm10 = Math.round(maxPm10 * 100.0) / 100.0;
 
-            clusteredResults.add(new ClusterAverageDTO(
-                BigDecimal.valueOf(centroidLat),
-                BigDecimal.valueOf(centroidLon),
-                avgPm25,
-                avgPm10,
-                validSensorCount
+            clusteredResults.add(new ClusterMaxDTO(
+                    BigDecimal.valueOf(centroidLat),
+                    BigDecimal.valueOf(centroidLon),
+                    finalMaxPm25,
+                    finalMaxPm10,
+                    validSensorCount
             ));
         }
 

@@ -1,6 +1,5 @@
 package com.aerosensei.controller;
 
-import com.aerosensei.dto.SensorRegistrationDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,7 +13,8 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 import com.aerosensei.service.SensorService;
-import com.aerosensei.dto.ClusterAverageDTO;
+import com.aerosensei.dto.ClusterMaxDTO;
+import com.aerosensei.dto.SensorRegistrationDTO;
 import com.aerosensei.dto.SiteHistoricalDataDTO;
 import com.aerosensei.dto.SiteSensor15MinDTO;
 
@@ -27,9 +27,9 @@ public class SensorController {
 
     private static final Logger logs = LoggerFactory.getLogger(SensorController.class);
   
-    // URL: GET http://localhost:8080/api/sensors/area/cluster?minLat=...&maxLat=...&minLon=...&maxLon=...&rows=4&cols=4
+    // URL: GET http://localhost:8080/api/sensors/area/cluster?minLat=...&maxLat=...&minLon=...&maxLon=...&zoom=12
     @GetMapping("/area/cluster")
-    public ResponseEntity<List<ClusterAverageDTO>> getClusteredArea(
+    public ResponseEntity<List<ClusterMaxDTO>> getClusteredArea(
             @RequestParam BigDecimal minLat,
             @RequestParam BigDecimal maxLat,
             @RequestParam BigDecimal minLon,
@@ -38,7 +38,7 @@ public class SensorController {
             Authentication authentication) {
 
         // Pass authentication to the service
-        List<ClusterAverageDTO> clusteredData = sensorService.getClusteredAveragesInArea(
+        List<ClusterMaxDTO> clusteredData = sensorService.getClusteredMaxInArea(
                 minLat, maxLat, minLon, maxLon, zoom, authentication);
 
         return ResponseEntity.ok(clusteredData);
