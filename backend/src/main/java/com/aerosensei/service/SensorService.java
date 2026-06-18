@@ -11,21 +11,18 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.concurrent.TimeUnit;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 
-import com.aerosensei.dto.SensorInfoDTO;
-import com.aerosensei.dto.SensorReadingDTO;
 import com.aerosensei.entity.SensorRegistry;
 import com.aerosensei.repository.SensorRegistryRepository;
 import com.aerosensei.dto.SensorAverageDTO;
 import com.aerosensei.dto.ClusterAverageDTO;
 import com.aerosensei.dto.SensorDataWithLocationDTO;
+import com.aerosensei.dto.SensorInfoDTO;
+import com.aerosensei.dto.SensorRegistrationDTO;
 
 @Service
 public class SensorService {
@@ -260,5 +257,51 @@ public class SensorService {
 
         logs.info("Search complete. Found {} sensors.", combinedResults.size());
         return combinedResults;
+    }
+
+    public SensorInfoDTO registerNewSensor(SensorRegistrationDTO dto) {
+        logs.info("Attempting to register new sensor: {}", dto.getSensorId());
+
+        // 1. (Optional but recommended) Check if the sensor ID already exists
+        Optional<SensorRegistry> existingSensor = registryRepository.findBySensorId(dto.getSensorId());
+
+        if (existingSensor.isPresent()) {
+            throw new RuntimeException("A sensor with ID " + dto.getSensorId() + " is already registered!");
+        }
+
+        // 2. Create a new Database Entity
+        SensorRegistry newSensor = new SensorRegistry();
+        newSensor.setSensorId(dto.getSensorId());
+        newSensor.setLocationName(dto.getLocationName());
+        newSensor.setLatitude(dto.getLatitude());
+        newSensor.setLongitude(dto.getLongitude());
+        newSensor.setStatus("ACTIVE"); // Default to ACTIVE upon registration
+
+        // 3. Save it to PostgreSQL
+        SensorRegistry savedSensor = registryRepository.save(newSensor);
+        logs.info("Successfully registered sensor {} at {}", savedSensor.getSensorId(), savedSensor.getLocationName());
+
+        // 4. Return it as a DTO to the frontend so they know it succeeded
+        return new SensorInfoDTO(
+                savedSensor.getSensorId(),
+                savedSensor.getLocationName(),
+                savedSensor.getLatitude(),
+                savedSensor.getLongitude(),
+                savedSensor.getStatus()
+        );
+    }
+
+    public void deleteSensor(String sensorId) {
+        logs.info("🗑Attempting to delete sensor: {}", sensorId);
+
+        // 1. Check if the sensor actually exists first
+        if (!registryRepository.existsBySensorId(sensorId)) {
+            throw new RuntimeException("Sensor with ID " + sensorId + " not found!");
+        }
+
+        // 2. Delete it from the PostgreSQL database
+        registryRepository.deleteBySensorId(sensorId);
+
+        logs.info("Successfully deleted sensor: {}", sensorId);
     }
 }
