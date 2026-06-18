@@ -12,15 +12,31 @@ CREATE TABLE IF NOT EXISTS company_sites
 -- Seed the initial sites with their respective map coordinates
 INSERT INTO company_sites (company_id, site_name, latitude, longitude)
 VALUES
-    (1, 'Saigon Hi-Tech Park R&D', 10.849600, 106.793300),
-    (1, 'Hoi An Regional Office', 15.880100, 108.338000),
-    (1, 'Hai Phong Testing Lab', 20.844900, 106.688100),
-    (2, 'District 1 HQ Roof Top', 10.776900, 106.700900),
-    (2, 'Can Tho Factory 1', 10.045200, 105.746900),
-    (2, 'Tra Noc Chemical Plant', 10.076500, 105.733200),
-    (2, 'Hue Data Center', 16.463700, 107.590500),
-    (2, 'Ha Long Shipyard Mon', 20.950000, 107.083300),
-    (3, 'My Tho Assembly Line', 10.354600, 106.365300),
-    (3, 'Da Nang Logistics Hub', 16.054400, 108.202200),
-    (3, 'Hanoi Storage Alpha', 21.028500, 105.854200)
-    ON CONFLICT (company_id, site_name) DO NOTHING;
+    -- VPBank (Banking)
+    ((SELECT id FROM companies WHERE company_name = 'VPBank'), 'VPBank Tower Hanoi', 21.016300, 105.814300),
+    ((SELECT id FROM companies WHERE company_name = 'VPBank'), 'VPBank Saigon Branch', 10.772500, 106.700100),
+
+    -- Petrovietnam Gas (Energy)
+    ((SELECT id FROM companies WHERE company_name = 'Petrovietnam Gas'), 'Dinh Co Gas Plant', 10.395100, 107.169100),
+    ((SELECT id FROM companies WHERE company_name = 'Petrovietnam Gas'), 'Ca Mau Gas Plant', 9.123400, 104.987600),
+
+    -- Hoa Phat Group (Materials)
+    ((SELECT id FROM companies WHERE company_name = 'Hoa Phat Group'), 'Dung Quat Steel Complex', 15.394200, 108.790100),
+    ((SELECT id FROM companies WHERE company_name = 'Hoa Phat Group'), 'Hai Duong Iron Complex', 20.971200, 106.463300),
+
+    -- VinFast Auto (Automotive)
+    ((SELECT id FROM companies WHERE company_name = 'VinFast Auto'), 'Hai Phong Manufacturing Plant', 20.820500, 106.840200),
+
+    -- FPT Corporation (Technology)
+    ((SELECT id FROM companies WHERE company_name = 'FPT Corporation'), 'FPT Tower Cau Giay', 21.031500, 105.783100),
+    ((SELECT id FROM companies WHERE company_name = 'FPT Corporation'), 'FPT Complex Da Nang', 15.976500, 108.256100),
+
+    -- Vinamilk (Consumer Staples)
+    ((SELECT id FROM companies WHERE company_name = 'Vinamilk'), 'Vietnam Mega Factory', 11.050500, 106.666100),
+
+    -- VietJet Aviation (Transportation)
+    ((SELECT id FROM companies WHERE company_name = 'VietJet Aviation'), 'Noi Bai Hangar 1', 21.218700, 105.804200),
+
+    -- Masan Group (Consumer Staples)
+    ((SELECT id FROM companies WHERE company_name = 'Masan Group'), 'Masan Thai Nguyen Plant', 21.567800, 105.820100)
+ON CONFLICT (company_id, site_name) DO NOTHING;

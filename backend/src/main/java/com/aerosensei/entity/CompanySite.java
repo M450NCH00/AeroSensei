@@ -27,9 +27,6 @@ public class CompanySite {
     @Column(nullable = false, precision = 11, scale = 8)
     private BigDecimal longitude;
 
-    @Column(name = "installation_date")
-    private LocalDate installationDate;
-
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -43,4 +40,10 @@ public class CompanySite {
     public void setCompany(Company company) { this.company = company; }
 
     public String getSiteName() { return siteName; }
+
+    public BigDecimal getLatitude() { return latitude; }
+    public void setLatitude(BigDecimal latitude) { this.latitude = latitude; }
+
+    public BigDecimal getLongitude() { return longitude; }
+    public void setLongitude(BigDecimal longitude) { this.longitude = longitude; }
 }

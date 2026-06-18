@@ -81,8 +81,8 @@ print("Bucket wiped clean!")
 write_api = client.write_api(write_options=SYNCHRONOUS)
 
 now = datetime.now(timezone.utc)
-start_time = now - timedelta(hours=1)
-end_time = now + timedelta(hours=1)
+start_time = now - timedelta(hours=15)
+end_time = now + timedelta(hours=2)
 
 print(f"Generating mock data from {start_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')} (UTC)...")
 

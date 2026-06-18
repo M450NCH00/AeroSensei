@@ -30,13 +30,19 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
     );
 
     //use to fetch the sensors from the company of the user
-    @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
-            "FROM sensor_registry sr " +
+    @Query(value = "SELECT sr.* FROM sensor_registry sr " +
             "JOIN company_sites cs ON sr.site_id = cs.id " +
             "JOIN companies c ON cs.company_id = c.id " +
             "JOIN users u ON c.user_id = u.id " +
-            "WHERE u.email = :email", nativeQuery = true)
-    List<Object[]> findCompanySensorMetadataByEmail(@Param("email") String email);
+            "WHERE sr.latitude BETWEEN :minLat AND :maxLat " +
+            "AND sr.longitude BETWEEN :minLon AND :maxLon " +
+            "AND u.email = :userEmail", nativeQuery = true)
+    List<SensorRegistry> findCompanySensorsWithinBounds(
+            @Param("minLat") BigDecimal minLat,
+            @Param("maxLat") BigDecimal maxLat,
+            @Param("minLon") BigDecimal minLon,
+            @Param("maxLon") BigDecimal maxLon,
+            @Param("userEmail") String userEmail);
 
     //use to fetch sensor by company and site name
     @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
@@ -57,6 +63,17 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             "WHERE cs.id = :siteId", nativeQuery = true)
     List<Object[]> findAllSensorsBySiteId(@Param("siteId") Integer siteId);
 
-    //List<SensorRegistry> findByLocationNameContainingIgnoreCase(String locationName);
+    // Fetch UUIDs for a site (Company specific)
+    @Query(value = "SELECT CAST(sr.id AS VARCHAR) FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id " +
+            "JOIN users u ON c.user_id = u.id " +
+            "WHERE cs.id = :siteId AND u.email = :email", nativeQuery = true)
+    List<String> findSensorUuidsBySiteIdAndEmail(@Param("siteId") Integer siteId, @Param("email") String email);
+
+    // Fetch UUIDs for a site (Government Master Key)
+    @Query(value = "SELECT CAST(sr.id AS VARCHAR) FROM sensor_registry sr " +
+            "WHERE sr.site_id = :siteId", nativeQuery = true)
+    List<String> findSensorUuidsBySiteId(@Param("siteId") Integer siteId);
 }
 

@@ -21,10 +21,8 @@ import com.aerosensei.entity.SensorRegistry;
 import com.aerosensei.repository.SensorRegistryRepository;
 import com.aerosensei.dto.SensorAverageDTO;
 import com.aerosensei.dto.ClusterAverageDTO;
-import com.aerosensei.dto.SensorDataWithLocationDTO;
-import com.aerosensei.dto.SensorInfoDTO;
-import com.aerosensei.dto.SensorRegistrationDTO;
 import com.aerosensei.dto.CompanyDashboardSensorDTO;
+import com.aerosensei.dto.SiteHistoricalDataDTO;
 
 
 
@@ -52,43 +50,43 @@ public class SensorService {
     @Value("${influxdb.bucket}")
     private String bucket;
 
-    // ==========================================
-    // GET COMPANY DASHBOARD (DOUBLE CACHE)
-    // ==========================================
-    public List<CompanyDashboardSensorDTO> getCompanyDashboard(String userEmail) {
-        String metadataCacheKey = "company_metadata:" + userEmail;
-
-        // CACHE 1: Check Redis for the heavy PostgreSQL Metadata (lasts 24 hours)
-        List<CompanyDashboardSensorDTO> dashboardSensors = (List<CompanyDashboardSensorDTO>) redisTemplate.opsForValue().get(metadataCacheKey);
-
-        if (dashboardSensors == null) {
-            logs.info("REDIS MISS: Fetching company metadata from DB for user: {}", userEmail);
-            List<Object[]> results = registryRepository.findCompanySensorMetadataByEmail(userEmail);
-
-            dashboardSensors = new ArrayList<>();
-            for (Object[] row : results) {
-                CompanyDashboardSensorDTO dto = new CompanyDashboardSensorDTO();
-                dto.setCompanyName((String) row[0]);
-                dto.setSiteName((String) row[1]);
-                dto.setSensorId((String) row[2]);
-                dto.setLatitude((BigDecimal) row[3]);
-                dto.setLongitude((BigDecimal) row[4]);
-                dto.setDbStatus((String) row[5]);
-                dashboardSensors.add(dto);
-            }
-            // Save metadata to Redis
-            if (!dashboardSensors.isEmpty()) {
-                redisTemplate.opsForValue().set(metadataCacheKey, dashboardSensors, 24, TimeUnit.HOURS);
-            }
-        }
-
-        // CACHE 2: Check live InfluxDB data for the 1-Hour Online Status
-        for (CompanyDashboardSensorDTO sensor : dashboardSensors) {
-            fetchLiveStatus(sensor);
-        }
-
-        return dashboardSensors;
-    }
+//    // ==========================================
+//    // GET COMPANY DASHBOARD (DOUBLE CACHE)
+//    // ==========================================
+//    public List<CompanyDashboardSensorDTO> getCompanyDashboard(String userEmail) {
+//        String metadataCacheKey = "company_metadata:" + userEmail;
+//
+//        // CACHE 1: Check Redis for the heavy PostgreSQL Metadata (lasts 24 hours)
+//        List<CompanyDashboardSensorDTO> dashboardSensors = (List<CompanyDashboardSensorDTO>) redisTemplate.opsForValue().get(metadataCacheKey);
+//
+//        if (dashboardSensors == null) {
+//            logs.info("REDIS MISS: Fetching company metadata from DB for user: {}", userEmail);
+//            List<Object[]> results = registryRepository.findCompanySensorMetadataByEmail(userEmail);
+//
+//            dashboardSensors = new ArrayList<>();
+//            for (Object[] row : results) {
+//                CompanyDashboardSensorDTO dto = new CompanyDashboardSensorDTO();
+//                dto.setCompanyName((String) row[0]);
+//                dto.setSiteName((String) row[1]);
+//                dto.setSensorId((String) row[2]);
+//                dto.setLatitude((BigDecimal) row[3]);
+//                dto.setLongitude((BigDecimal) row[4]);
+//                dto.setDbStatus((String) row[5]);
+//                dashboardSensors.add(dto);
+//            }
+//            // Save metadata to Redis
+//            if (!dashboardSensors.isEmpty()) {
+//                redisTemplate.opsForValue().set(metadataCacheKey, dashboardSensors, 24, TimeUnit.HOURS);
+//            }
+//        }
+//
+//        // CACHE 2: Check live InfluxDB data for the 1-Hour Online Status
+//        for (CompanyDashboardSensorDTO sensor : dashboardSensors) {
+//            fetchLiveStatus(sensor);
+//        }
+//
+//        return dashboardSensors;
+//    }
 
     private void fetchLiveStatus(CompanyDashboardSensorDTO sensor) {
         String liveCacheKey = "live_status_1h:" + sensor.getSensorId();
@@ -133,8 +131,6 @@ public class SensorService {
         // Save this live status into Redis for 60 seconds so we don't spam InfluxDB
         redisTemplate.opsForValue().set(liveCacheKey, sensor, 5, TimeUnit.MINUTES);
     }
-
-    // ... inside SensorService class ...
 
     // ==========================================
     // GET SENSORS FOR A SPECIFIC SITE (ROLE-AWARE) - only for government
@@ -204,15 +200,31 @@ public class SensorService {
     }
 
     // clustering area sensor function
-    public List<ClusterAverageDTO> getClusteredAveragesInArea(
-            BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon, int zoom) {
+    public List<ClusterAverageDTO>  getClusteredAveragesInArea(
+            BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon, int zoom, Authentication authentication) {
+
+        //Identify who is asking
+        String userEmail = authentication.getName();
+        boolean isGovernment = authentication.getAuthorities().stream()
+                .map(auth -> auth.getAuthority().toUpperCase()) // Convert everything to uppercase
+                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+
+        logs.info("Government checking: {}", isGovernment);
 
         // Translate the map zoom into a database string prefix length
         int precision = mapZoomToPrecision(zoom);
         logs.info("Clustering map area using zoom level {} -> geohash precision {}", zoom, precision);
 
         // Get all sensors in the view (Fast DB query)
-        List<SensorRegistry> sensorsInArea = registryRepository.findSensorsWithinBounds(minLat, maxLat, minLon, maxLon);
+        List<SensorRegistry> sensorsInArea;
+
+        if (isGovernment) {
+            // Government sees every sensor inside the map bounds
+            sensorsInArea = registryRepository.findSensorsWithinBounds(minLat, maxLat, minLon, maxLon);
+        } else {
+            // Company sees ONLY their own sensors inside the map bounds
+            sensorsInArea = registryRepository.findCompanySensorsWithinBounds(minLat, maxLat, minLon, maxLon, userEmail);
+        }
 
         if (sensorsInArea.isEmpty()) {
             return new ArrayList<>();
@@ -281,262 +293,136 @@ public class SensorService {
         return clusteredResults;
     }
 
-    // public List<SensorInfoDTO> getAllSensorsInfo() {
-    //     logs.info("Fetching all the sensors info data");
+    // ==========================================
+    // GET 12-HOUR HISTORICAL AVERAGE FOR A SITE
+    // ==========================================
+    public List<SiteHistoricalDataDTO> getSiteHistoricalAverage(Integer siteId, Authentication authentication) {
+        String userEmail = authentication.getName();
+        boolean isGovernment = authentication.getAuthorities().stream()
+                .map(auth -> auth.getAuthority().toUpperCase())
+                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
 
-    //     // Fetch all sensors from PostgreSQL
-    //     List<SensorRegistry> sensors = registryRepository.findAll();
+        // Fetch allowed UUIDs from PostgreSQL based on role
+        List<String> sensorUuids;
+        if (isGovernment) {
+            sensorUuids = registryRepository.findSensorUuidsBySiteId(siteId);
+        } else {
+            sensorUuids = registryRepository.findSensorUuidsBySiteIdAndEmail(siteId, userEmail);
+        }
 
-    //     // Convert the raw Entities into clean DTOs
-    //     return sensors.stream().map(sensor -> new SensorInfoDTO(
-    //             sensor.getSensorId(),
-    //             sensor.getLocationName(),
-    //             sensor.getLatitude(),
-    //             sensor.getLongitude(),
-    //             sensor.getStatus()
-    //     )).collect(Collectors.toList());
-    // }
+        // If the site doesn't exist, doesn't belong to the company, or has no sensors -> return empty
+        if (sensorUuids == null || sensorUuids.isEmpty()) {
+            return new ArrayList<>();
+        }
 
-    // //Get by area boundaries
-    // public List<SensorInfoDTO> getSensorsWithinArea(BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon) {
-    //     List<SensorRegistry> sensors = registryRepository.findSensorsWithinBounds(minLat, maxLat, minLon, maxLon);
+        // Build the dynamic Flux filter string for the UUIDs
+        // Result looks like: r.sensor_id == "uuid1" or r.sensor_id == "uuid2"
+        String uuidFilter = sensorUuids.stream()
+                .map(uuid -> "r.sensor_id == \"" + uuid + "\"")
+                .collect(Collectors.joining(" or "));
 
-    //     return sensors.stream().map(sensor -> new SensorInfoDTO(
-    //             sensor.getSensorId(),
-    //             sensor.getLocationName(),
-    //             sensor.getLatitude(),
-    //             sensor.getLongitude(),
-    //             sensor.getStatus()
-    //     )).collect(Collectors.toList());
-    // }
+        // The 12-Hour InfluxDB Query
+        // group(columns: ["_field"]) pools all sensors at the site together before averaging
+        String fluxQuery = String.format(
+                "from(bucket:\"%s\") " +
+                        "|> range(start: -12h) " +
+                        "|> filter(fn: (r) => r._measurement == \"air_quality\") " +
+                        "|> filter(fn: (r) => %s) " +
+                        "|> group(columns: [\"_field\"]) " +
+                        "|> aggregateWindow(every: 1h, fn: mean, createEmpty: false)",
+                bucket, uuidFilter
+        );
 
-    // //Get average for single sensor
-    // public SensorAverageDTO getRealTimeAverage(String sensorId) {
-    //     logs.info("Requesting real-time average for sensor: {}", sensorId);
-    //     String redisKey = "sensor_avg:" + sensorId;
+        logs.info("Executing 12-hour historical query for site {}. Sensors involved: {}", siteId, sensorUuids.size());
+        List<FluxTable> tables = influxDBClient.getQueryApi().query(fluxQuery, org);
 
-    //     // Check Redis first
-    //     SensorAverageDTO cachedData = (SensorAverageDTO) redisTemplate.opsForValue().get(redisKey);
-    //     if (cachedData != null) {
-    //         logs.info("REDIS HIT: Returning cached data for sensor: {}", sensorId);
-    //         return cachedData;
-    //     }
+        // 4. Map the results by Timestamp so PM2.5 and PM10 merge into the same DTO
+        Map<Instant, SiteHistoricalDataDTO> timeSeriesMap = new HashMap<>();
 
-    //     logs.info("REDIS MISS: Fetching fresh data from InfluxDB for sensor: {}", sensorId);
+        for (FluxTable table : tables) {
+            for (FluxRecord record : table.getRecords()) {
+                Instant time = record.getTime();
+                String field = record.getField();
+                Double value = (Double) record.getValue();
 
-    //     // Not in Redis -> Fetch UUID from PostgreSQL
-    //     SensorRegistry registry = registryRepository.findBySensorId(sensorId)
-    //             .orElseThrow(() -> {
-    //                 logs.error("Sensor ID not found in PostgreSQL: {}", sensorId);
-    //                 return new RuntimeException("Sensor not found in database: " + sensorId);
-    //             });
+                if (value == null) continue;
 
-    //     String influxUuid = registry.getId().toString();
+                // Create or fetch the DTO for this specific hour
+                SiteHistoricalDataDTO dto = timeSeriesMap.computeIfAbsent(time, SiteHistoricalDataDTO::new);
 
-    //     // Query InfluxDB
-    //     String fluxQuery = String.format(
-    //             "from(bucket:\"%s\") " +
-    //                     "|> range(start: -15m) " +
-    //                     "|> filter(fn: (r) => r._measurement == \"air_quality\") " +
-    //                     "|> filter(fn: (r) => r.sensor_id == \"%s\") " +
-    //                     "|> mean()", bucket, influxUuid
-    //     );
+                if ("pm2_5".equals(field)) {
+                    dto.setPm25(Math.round(value * 100.0) / 100.0);
+                } else if ("pm10".equals(field)) {
+                    dto.setPm10(Math.round(value * 100.0) / 100.0);
+                }
+            }
+        }
 
-    //     List<FluxTable> tables = influxDBClient.getQueryApi().query(fluxQuery, org);
+        // 5. Convert map to a sorted list (oldest to newest) for graphing
+        List<SiteHistoricalDataDTO> sortedData = new ArrayList<>(timeSeriesMap.values());
+        sortedData.sort(Comparator.comparing(SiteHistoricalDataDTO::getTimestamp));
 
-    //     SensorAverageDTO dto = new SensorAverageDTO();
-    //     dto.setSensorId(sensorId);
-    //     dto.setLocationName(registry.getLocationName());
-    //     dto.setLastCalculated(Instant.now());
+        return sortedData;
+    }
 
-    //     for (FluxTable table : tables) {
-    //         for (FluxRecord record : table.getRecords()) {
-    //             String field = record.getField();
-    //             Double avgValue = (Double) record.getValue();
+     //Get average for single sensor
+     public SensorAverageDTO getRealTimeAverage(String sensorId) {
+         logs.info("Requesting real-time average for sensor: {}", sensorId);
+         String redisKey = "sensor_avg:" + sensorId;
 
-    //             if (avgValue != null) {
-    //                 if ("pm2_5".equals(field)) {
-    //                     dto.setPm25(Math.round(avgValue * 100.0) / 100.0);
-    //                 } else if ("pm10".equals(field)) {
-    //                     dto.setPm10(Math.round(avgValue * 100.0) / 100.0);
-    //                 }
-    //             }
-    //         }
-    //     }
+         // Check Redis first
+         SensorAverageDTO cachedData = (SensorAverageDTO) redisTemplate.opsForValue().get(redisKey);
+         if (cachedData != null) {
+             logs.info("REDIS HIT: Returning cached data for sensor: {}", sensorId);
+             return cachedData;
+         }
 
-    //     // Save to Redis for 10 minutes
-    //     logs.info("Caching calculated average in Redis for 10 minutes for sensor: {}", sensorId);
-    //     redisTemplate.opsForValue().set(redisKey, dto, 10, TimeUnit.MINUTES);
+         logs.info("REDIS MISS: Fetching fresh data from InfluxDB for sensor: {}", sensorId);
 
-    //     return dto;
-    // }
+         // Not in Redis -> Fetch UUID from PostgreSQL
+         SensorRegistry registry = registryRepository.findBySensorId(sensorId)
+                 .orElseThrow(() -> {
+                     logs.error("Sensor ID not found in PostgreSQL: {}", sensorId);
+                     return new RuntimeException("Sensor not found in database: " + sensorId);
+                 });
 
-    // //get the average in a specific area
-    // public List<SensorAverageDTO> getRealTimeAveragesInArea(BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon) {
-    //     logs.info("Fetching real-time averages for map area [MinLat: {}, MaxLat: {}, MinLon: {}, MaxLon: {}]", minLat, maxLat, minLon, maxLon);
+         String influxUuid = registry.getId().toString();
 
-    //     // Find which sensors are in the area
-    //     List<SensorRegistry> sensorsInArea = registryRepository.findSensorsWithinBounds(minLat, maxLat, minLon, maxLon);
+         // Query InfluxDB
+         String fluxQuery = String.format(
+                 "from(bucket:\"%s\") " +
+                         "|> range(start: -15m) " +
+                         "|> filter(fn: (r) => r._measurement == \"air_quality\") " +
+                         "|> filter(fn: (r) => r.sensor_id == \"%s\") " +
+                         "|> mean()", bucket, influxUuid
+         );
 
-    //     logs.info("Found {} sensors physically located in this bounding box.", sensorsInArea.size());
+         List<FluxTable> tables = influxDBClient.getQueryApi().query(fluxQuery, org);
 
-    //     // Loop through them (this will trigger the Redis hit/miss logs for each individual sensor!)
-    //     return sensorsInArea.stream()
-    //             .map(sensor -> getRealTimeAverage(sensor.getSensorId()))
-    //             .collect(Collectors.toList());
-    // }
+         SensorAverageDTO dto = new SensorAverageDTO();
+         dto.setSensorId(sensorId);
+         dto.setLocationName(registry.getSite().getSiteName());
+         dto.setLastCalculated(Instant.now());
 
-    // // clustering area sensor function
-    // public List<ClusterAverageDTO> getClusteredAveragesInArea(
-    //         BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon, int rows, int cols) {
+         for (FluxTable table : tables) {
+             for (FluxRecord record : table.getRecords()) {
+                 String field = record.getField();
+                 Double avgValue = (Double) record.getValue();
 
-    //     logs.info("Clustering map area into {}x{} grid", rows, cols);
+                 if (avgValue != null) {
+                     if ("pm2_5".equals(field)) {
+                         dto.setPm25(Math.round(avgValue * 100.0) / 100.0);
+                     } else if ("pm10".equals(field)) {
+                         dto.setPm10(Math.round(avgValue * 100.0) / 100.0);
+                     }
+                 }
+             }
+         }
 
-    //     //  Get all sensors in the view (Fast DB query)
-    //     List<SensorRegistry> sensorsInArea = registryRepository.findSensorsWithinBounds(minLat, maxLat, minLon, maxLon);
+         // Save to Redis for 10 minutes
+         logs.info("Caching calculated average in Redis for 10 minutes for sensor: {}", sensorId);
+         redisTemplate.opsForValue().set(redisKey, dto, 10, TimeUnit.MINUTES);
 
-    //     if (sensorsInArea.isEmpty()) {
-    //         return new ArrayList<>();
-    //     }
-
-    //     // Calculate the physical size of each grid cell
-    //     double latStep = (maxLat.doubleValue() - minLat.doubleValue()) / rows;
-    //     double lonStep = (maxLon.doubleValue() - minLon.doubleValue()) / cols;
-
-    //     // Map to hold our grouped data. Key: "rowIndex_colIndex"
-    //     Map<String, List<SensorAverageDTO>> gridMap = new HashMap<>();
-
-    //     // Assign each sensor to a grid cell
-    //     for (SensorRegistry sensor : sensorsInArea) {
-    //         // Get the ultra-fast cached real-time data
-    //         SensorAverageDTO liveData = getRealTimeAverage(sensor.getSensorId());
-
-    //         if (liveData.getPm25() == null) continue; // Skip sensors currently offline/missing data
-
-    //         // Determine which row and column this sensor falls into
-    //         int rowIndex = (int) ((sensor.getLatitude().doubleValue() - minLat.doubleValue()) / latStep);
-    //         int colIndex = (int) ((sensor.getLongitude().doubleValue() - minLon.doubleValue()) / lonStep);
-
-    //         // Edge case: clamp to max index if it lands perfectly on the boundary
-    //         rowIndex = Math.min(rowIndex, rows - 1);
-    //         colIndex = Math.min(colIndex, cols - 1);
-
-    //         String cellKey = rowIndex + "_" + colIndex;
-    //         gridMap.computeIfAbsent(cellKey, k -> new ArrayList<>()).add(liveData);
-    //     }
-
-    //     // Calculate the averages for each populated cell
-    //     List<ClusterAverageDTO> clusteredResults = new ArrayList<>();
-
-    //     for (Map.Entry<String, List<SensorAverageDTO>> entry : gridMap.entrySet()) {
-    //         String[] indices = entry.getKey().split("_");
-    //         int rowIndex = Integer.parseInt(indices[0]);
-    //         int colIndex = Integer.parseInt(indices[1]);
-
-    //         List<SensorAverageDTO> cellSensors = entry.getValue();
-
-    //         // Calculate the exact center coordinate of this grid box for the frontend to place the marker
-    //         double centerLat = minLat.doubleValue() + (rowIndex + 0.5) * latStep;
-    //         double centerLon = minLon.doubleValue() + (colIndex + 0.5) * lonStep;
-
-    //         // Average the PM values
-    //         double sumPm25 = 0;
-    //         double sumPm10 = 0;
-    //         for (SensorAverageDTO data : cellSensors) {
-    //             sumPm25 += data.getPm25() != null ? data.getPm25() : 0;
-    //             sumPm10 += data.getPm10() != null ? data.getPm10() : 0;
-    //         }
-
-    //         double avgPm25 = Math.round((sumPm25 / cellSensors.size()) * 100.0) / 100.0;
-    //         double avgPm10 = Math.round((sumPm10 / cellSensors.size()) * 100.0) / 100.0;
-
-    //         clusteredResults.add(new ClusterAverageDTO(
-    //                 BigDecimal.valueOf(centerLat),
-    //                 BigDecimal.valueOf(centerLon),
-    //                 avgPm25,
-    //                 avgPm10,
-    //                 cellSensors.size()
-    //         ));
-    //     }
-
-    //     logs.info("Reduced {} raw sensors into {} clean map clusters.", sensorsInArea.size(), clusteredResults.size());
-    //     return clusteredResults;
-    // }
-
-    // public List<SensorDataWithLocationDTO> searchSensorsByLocation(String locationName) {
-    //     logs.info("Searching for sensors matching location: {}", locationName);
-
-    //     // 1. Fetch matching database records
-    //     List<SensorRegistry> matchingSensors = registryRepository.findByLocationNameContainingIgnoreCase(locationName);
-
-    //     List<SensorDataWithLocationDTO> combinedResults = new ArrayList<>();
-
-    //     // 2. Loop through and bundle the metadata with the live Redis/Influx data
-    //     for (SensorRegistry sensor : matchingSensors) {
-
-    //         // Convert the DB entity into your existing SensorInfoDTO
-    //         SensorInfoDTO infoDTO = new SensorInfoDTO(
-    //                 sensor.getSensorId(),
-    //                 sensor.getLocationName(),
-    //                 sensor.getLatitude(),
-    //                 sensor.getLongitude(),
-    //                 sensor.getStatus()
-    //         );
-
-    //         // Fetch the fast live reading (this is your existing method!)
-    //         SensorAverageDTO liveData = getRealTimeAverage(sensor.getSensorId());
-
-    //         // Bundle them together
-    //         combinedResults.add(new SensorDataWithLocationDTO(infoDTO, liveData));
-    //     }
-
-    //     logs.info("Search complete. Found {} sensors.", combinedResults.size());
-    //     return combinedResults;
-    // }
-
-    // public SensorInfoDTO registerNewSensor(SensorRegistrationDTO dto) {
-    //     logs.info("Attempting to register new sensor: {}", dto.getSensorId());
-
-    //     // 1. (Optional but recommended) Check if the sensor ID already exists
-    //     Optional<SensorRegistry> existingSensor = registryRepository.findBySensorId(dto.getSensorId());
-
-    //     if (existingSensor.isPresent()) {
-    //         throw new RuntimeException("A sensor with ID " + dto.getSensorId() + " is already registered!");
-    //     }
-
-    //     // 2. Create a new Database Entity
-    //     SensorRegistry newSensor = new SensorRegistry();
-    //     newSensor.setSensorId(dto.getSensorId());
-    //     newSensor.setLocationName(dto.getLocationName());
-    //     newSensor.setLatitude(dto.getLatitude());
-    //     newSensor.setLongitude(dto.getLongitude());
-    //     newSensor.setStatus("ACTIVE"); // Default to ACTIVE upon registration
-
-    //     // 3. Save it to PostgreSQL
-    //     SensorRegistry savedSensor = registryRepository.save(newSensor);
-    //     logs.info("Successfully registered sensor {} at {}", savedSensor.getSensorId(), savedSensor.getLocationName());
-
-    //     // 4. Return it as a DTO to the frontend so they know it succeeded
-    //     return new SensorInfoDTO(
-    //             savedSensor.getSensorId(),
-    //             savedSensor.getLocationName(),
-    //             savedSensor.getLatitude(),
-    //             savedSensor.getLongitude(),
-    //             savedSensor.getStatus()
-    //     );
-    // }
-
-    // public void deleteSensor(String sensorId) {
-    //     logs.info("🗑Attempting to delete sensor: {}", sensorId);
-
-    //     // 1. Check if the sensor actually exists first
-    //     if (!registryRepository.existsBySensorId(sensorId)) {
-    //         throw new RuntimeException("Sensor with ID " + sensorId + " not found!");
-    //     }
-
-    //     // 2. Delete it from the PostgreSQL database
-    //     registryRepository.deleteBySensorId(sensorId);
-
-    //     logs.info("Successfully deleted sensor: {}", sensorId);
-    // }
+         return dto;
+     }
 }

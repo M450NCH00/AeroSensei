@@ -19,39 +19,42 @@ CREATE TABLE IF NOT EXISTS sensor_registry
 CREATE INDEX IF NOT EXISTS idx_sensor_geohash ON sensor_registry (geohash varchar_pattern_ops);
 
 -- Insert initial test data with slight coordinate offsets from the main site
-INSERT INTO sensor_registry
-(sensor_id, site_id, latitude, longitude, geohash, status, installation_date)
+INSERT INTO sensor_registry (sensor_id, site_id, latitude, longitude, geohash, status, installation_date)
 VALUES
-    -- Site: Saigon Hi-Tech Park R&D (Site Center: 10.849600, 106.793300) -> Offset North-East
-    ('esp32_004', (SELECT id FROM company_sites WHERE site_name = 'Saigon Hi-Tech Park R&D'), 10.849650, 106.793350, 'w3gvwphec', 'active', '2026-06-09'),
+    -- VPBank Tower Hanoi (Lat: ~21.01, Lon: ~105.81) -> Offset East
+    ('esp32_015', (SELECT id FROM company_sites WHERE site_name = 'VPBank Tower Hanoi'), 21.016350, 105.814350, 'w7er1c4v5', 'active', '2026-01-10'),
 
-    -- Site: District 1 HQ Roof Top (Site Center: 10.776900, 106.700900) -> Offset South-West
-    ('esp32_005', (SELECT id FROM company_sites WHERE site_name = 'District 1 HQ Roof Top'), 10.776850, 106.700850, 'w3gvk1c5w', 'active', '2026-06-10'),
+    -- VPBank Saigon Branch (Lat: ~10.77, Lon: ~106.70) -> Offset North
+    ('esp32_016', (SELECT id FROM company_sites WHERE site_name = 'VPBank Saigon Branch'), 10.772550, 106.700100, 'w3gvk1m2q', 'active', '2026-01-12'),
 
-    -- Site: Can Tho Factory 1 (Site Center: 10.045200, 105.746900) -> Offset North
-    ('esp32_006', (SELECT id FROM company_sites WHERE site_name = 'Can Tho Factory 1'), 10.045250, 105.746900, 'w3g1nkdtc', 'active', '2026-05-15'),
+    -- Dinh Co Gas Plant (Lat: ~10.39, Lon: ~107.16) -> Offset South
+    ('esp32_017', (SELECT id FROM company_sites WHERE site_name = 'Dinh Co Gas Plant'), 10.395050, 107.169100, 'w3thsx7b8', 'maintenance', '2025-11-20'),
 
-    -- Site: Tra Noc Chemical Plant (Site Center: 10.076500, 105.733200) -> Offset South
-    ('esp32_007', (SELECT id FROM company_sites WHERE site_name = 'Tra Noc Chemical Plant'), 10.076450, 105.733200, 'w3g1q42ed', 'offline', '2026-05-20'),
+    -- Ca Mau Gas Plant (Lat: ~9.12, Lon: ~104.98)
+    ('esp32_018', (SELECT id FROM company_sites WHERE site_name = 'Ca Mau Gas Plant'), 9.123450, 104.987650, 'w38zdf9rt', 'active', '2025-11-25'),
 
-    -- Site: My Tho Assembly Line (Site Center: 10.354600, 106.365300)
-    ('esp32_008', (SELECT id FROM company_sites WHERE site_name = 'My Tho Assembly Line'), 10.354650, 106.365350, 'w3gdumhbh', 'active', '2026-05-25'),
+    -- Dung Quat Steel Complex (Lat: ~15.39, Lon: ~108.79)
+    ('esp32_019', (SELECT id FROM company_sites WHERE site_name = 'Dung Quat Steel Complex'), 15.394250, 108.790150, 'w6vrmq1pl', 'offline', '2026-02-14'),
 
-    -- Site: Da Nang Logistics Hub (Site Center: 16.054400, 108.202200)
-    ('esp32_009', (SELECT id FROM company_sites WHERE site_name = 'Da Nang Logistics Hub'), 16.054450, 108.202250, 'w6ugq4w7z', 'active', '2026-04-10'),
+    -- Hai Duong Iron Complex (Lat: ~20.97, Lon: ~106.46)
+    ('esp32_020', (SELECT id FROM company_sites WHERE site_name = 'Hai Duong Iron Complex'), 20.971250, 106.463350, 'w7eyg5hjk', 'active', '2026-02-18'),
 
-    -- Site: Hoi An Regional Office (Site Center: 15.880100, 108.338000)
-    ('esp32_010', (SELECT id FROM company_sites WHERE site_name = 'Hoi An Regional Office'), 15.880150, 108.338050, 'w6v436cke', 'maintenance', '2026-04-12'),
+    -- VinFast Hai Phong (Lat: ~20.82, Lon: ~106.84) -> Multiple sensors for a large plant
+    ('esp32_021', (SELECT id FROM company_sites WHERE site_name = 'Hai Phong Manufacturing Plant'), 20.820550, 106.840250, 'w7eyxw2mn', 'active', '2026-05-01'),
+    ('esp32_022', (SELECT id FROM company_sites WHERE site_name = 'Hai Phong Manufacturing Plant'), 20.820600, 106.840100, 'w7eyxw3op', 'active', '2026-05-01'),
 
-    -- Site: Hue Data Center (Site Center: 16.463700, 107.590500)
-    ('esp32_011', (SELECT id FROM company_sites WHERE site_name = 'Hue Data Center'), 16.463750, 107.590550, 'w6ut8m1h3', 'active', '2026-04-15'),
+    -- FPT Tower Cau Giay (Lat: ~21.03, Lon: ~105.78)
+    ('esp32_023', (SELECT id FROM company_sites WHERE site_name = 'FPT Tower Cau Giay'), 21.031550, 105.783150, 'w7er3p8kj', 'active', '2026-03-22'),
 
-    -- Site: Hanoi Storage Alpha (Site Center: 21.028500, 105.854200)
-    ('esp32_012', (SELECT id FROM company_sites WHERE site_name = 'Hanoi Storage Alpha'), 21.028550, 105.854250, 'w7er8u0sn', 'active', '2026-03-05'),
+    -- FPT Complex Da Nang (Lat: ~15.97, Lon: ~108.25)
+    ('esp32_024', (SELECT id FROM company_sites WHERE site_name = 'FPT Complex Da Nang'), 15.976550, 108.256150, 'w6vhd4tyu', 'active', '2026-03-25'),
 
-    -- Site: Hai Phong Testing Lab (Site Center: 20.844900, 106.688100)
-    ('esp32_013', (SELECT id FROM company_sites WHERE site_name = 'Hai Phong Testing Lab'), 20.844950, 106.688150, 'w7eyedxyw', 'active', '2026-03-08'),
-    
-    -- Site: Ha Long Shipyard Mon (Site Center: 20.950000, 107.083300)
-    ('esp32_014', (SELECT id FROM company_sites WHERE site_name = 'Ha Long Shipyard Mon'), 20.950050, 107.083350, 'w7sphtzdy', 'offline', '2026-03-10')
-ON CONFLICT (sensor_id) DO NOTHING;
+    -- Vinamilk Mega Factory (Lat: ~11.05, Lon: ~106.66)
+    ('esp32_025', (SELECT id FROM company_sites WHERE site_name = 'Vietnam Mega Factory'), 11.050550, 106.666150, 'w3gwn7zbv', 'active', '2025-10-10'),
+
+    -- VietJet Noi Bai Hangar (Lat: ~21.21, Lon: ~105.80)
+    ('esp32_026', (SELECT id FROM company_sites WHERE site_name = 'Noi Bai Hangar 1'), 21.218750, 105.804250, 'w7er9k2qw', 'maintenance', '2026-04-05'),
+
+    -- Masan Thai Nguyen Plant (Lat: ~21.56, Lon: ~105.82)
+    ('esp32_027', (SELECT id FROM company_sites WHERE site_name = 'Masan Thai Nguyen Plant'), 21.567850, 105.820150, 'w7exbn4ml', 'active', '2026-06-01')
+    ON CONFLICT (sensor_id) DO NOTHING;
