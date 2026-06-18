@@ -84,6 +84,8 @@ public class AuthService {
         if (rp.getCanEditMetadata() != null && rp.getCanEditMetadata()) permissions.add("EDIT_METADATA");
         if (rp.getCanManageUsers() != null && rp.getCanManageUsers()) permissions.add("MANAGE_USERS");
         if (rp.getCanDeleteRecords() != null && rp.getCanDeleteRecords()) permissions.add("DELETE_RECORDS");
+        if (rp.getCanAddSensors() != null && rp.getCanAddSensors()) permissions.add("ADD_SENSORS");
+        if (rp.getCanDeleteSensors() != null && rp.getCanDeleteSensors()) permissions.add("DELETE_SENSORS");
 
         return permissions;
     }
