@@ -615,6 +615,18 @@ export default function CarbonCreditPage() {
                           Enter your activity data below — emissions and activity level are computed from your sector formulas on submit.
                         </p>
                       </div>
+                      {companyMySector.formula && (
+                        <div className="bg-[#F8FAFC] border border-gray-100 rounded-2xl px-5 py-3">
+                          <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Emissions Formula</p>
+                          <p className="text-sm font-black text-[#005A8C] font-mono">{companyMySector.formula}</p>
+                        </div>
+                      )}
+                      {companyMySector.activityFormula && (
+                        <div className="bg-[#F8FAFC] border border-gray-100 rounded-2xl px-5 py-3">
+                          <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Activity Formula</p>
+                          <p className="text-sm font-black text-[#009B9E] font-mono">{companyMySector.activityFormula}</p>
+                        </div>
+                      )}
                       {requiredCompanyVars.length === 0 ? (
                         <p className="text-sm font-semibold text-gray-400">Your sector has no formula variables defined.</p>
                       ) : (
