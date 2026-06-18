@@ -118,14 +118,15 @@ services:
       - ./postgresql/query/user_registry_initialization.sql:/docker-entrypoint-initdb.d/02_user_registry_initialization.sql
       - ./postgresql/query/sectors_initialization.sql:/docker-entrypoint-initdb.d/03_sectors_initialization.sql
       - ./postgresql/query/company_registry_initialization.sql:/docker-entrypoint-initdb.d/04_company_registry_initialization.sql
-      - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/05_sensor_registry_initialization.sql
-      - ./postgresql/query/alert_registry_initialization.sql:/docker-entrypoint-initdb.d/06_alert_registry_initialization.sql
-      - ./postgresql/query/carbon_transactions_initialization.sql:/docker-entrypoint-initdb.d/07_carbon_transactions_initialization.sql
-      - ./postgresql/query/carbon_listings_initialization.sql:/docker-entrypoint-initdb.d/08_carbon_listings_initialization.sql
-      - ./postgresql/query/carbon_allocations_initialization.sql:/docker-entrypoint-initdb.d/09_carbon_allocations_initialization.sql
-      - ./postgresql/query/emission_reports_initialization.sql:/docker-entrypoint-initdb.d/10_emission_reports_initialization.sql
-      - ./postgresql/query/compliance_cycles_initialization.sql:/docker-entrypoint-initdb.d/11_compliance_cycles_initialization.sql
-      - ./postgresql/query/carbon_allocations_seed.sql:/docker-entrypoint-initdb.d/12_carbon_allocations_seed.sql
+      - ./postgresql/query/company_site_initialization.sql:/docker-entrypoint-initdb.d/05_company_site_initialization.sql
+      - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/06_sensor_registry_initialization.sql
+      - ./postgresql/query/alert_registry_initialization.sql:/docker-entrypoint-initdb.d/07_alert_registry_initialization.sql
+      - ./postgresql/query/carbon_transactions_initialization.sql:/docker-entrypoint-initdb.d/08_carbon_transactions_initialization.sql
+      - ./postgresql/query/carbon_listings_initialization.sql:/docker-entrypoint-initdb.d/09_carbon_listings_initialization.sql
+      - ./postgresql/query/carbon_allocations_initialization.sql:/docker-entrypoint-initdb.d/10_carbon_allocations_initialization.sql
+      - ./postgresql/query/emission_reports_initialization.sql:/docker-entrypoint-initdb.d/11_emission_reports_initialization.sql
+      - ./postgresql/query/compliance_cycles_initialization.sql:/docker-entrypoint-initdb.d/12_compliance_cycles_initialization.sql
+      - ./postgresql/query/carbon_allocations_seed.sql:/docker-entrypoint-initdb.d/13_carbon_allocations_seed.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
