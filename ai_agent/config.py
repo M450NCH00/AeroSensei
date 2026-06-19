@@ -11,15 +11,28 @@ def _split(value: str) -> list[str]:
 
 
 # --- LLM provider selection ---
-# Which backend drives the tool-calling loop. "ollama" today, "bedrock" later.
+# Which backend drives the tool-calling loop: "ollama", "bedrock", or "litellm"
+# (a unified OpenAI-style gateway to OpenAI/Anthropic/Bedrock/Azure/Gemini/etc.).
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
 
 # Model id. For Ollama this MUST be a tool-capable model (e.g. qwen2.5:7b-instruct,
 # llama3.1:8b, mistral-nemo). The default qwen3:0.6b cannot tool-call reliably.
+# For litellm, this is a LiteLLM model id, e.g. "gpt-4o-mini",
+# "anthropic/claude-3-5-sonnet-20241022", or "ollama/qwen2.5:7b-instruct".
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b-instruct")
 
 # Ollama server endpoint.
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
+
+# LiteLLM (used only when LLM_PROVIDER=litellm). Optional overrides; most backends
+# also read their own provider env vars (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...).
+LITELLM_API_BASE = os.getenv("LITELLM_API_BASE", "")
+LITELLM_API_KEY = os.getenv("LITELLM_API_KEY", "")
+
+# Context window (max input tokens) for the model. 0 = leave to LiteLLM's defaults.
+# Needed for models LiteLLM doesn't know (e.g. self-hosted), so token counting and
+# context-window checks work; also sets Ollama's num_ctx when routing via ollama.
+LLM_CONTEXT_WINDOW = int(os.getenv("LLM_CONTEXT_WINDOW", "0"))
 
 # Bedrock (used only when LLM_PROVIDER=bedrock). Region + model id read here so
 # the migration is a config change, not a code change.
@@ -52,4 +65,14 @@ def get_provider():
     if LLM_PROVIDER == "bedrock":
         from providers.bedrock_provider import BedrockProvider
         return BedrockProvider(model=BEDROCK_MODEL_ID, region=AWS_REGION)
-    raise ValueError(f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r} (expected 'ollama' or 'bedrock')")
+    if LLM_PROVIDER == "litellm":
+        from providers.litellm_provider import LiteLLMProvider
+        return LiteLLMProvider(
+            model=LLM_MODEL,
+            api_base=LITELLM_API_BASE,
+            api_key=LITELLM_API_KEY,
+            context_window=LLM_CONTEXT_WINDOW,
+        )
+    raise ValueError(
+        f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r} (expected 'ollama', 'bedrock', or 'litellm')"
+    )

@@ -7,6 +7,7 @@ behind the LLMProvider interface.
 import logging
 
 import config
+import skills
 import tools
 from knowledge_base import SYSTEM_PROMPT
 
@@ -15,9 +16,12 @@ log = logging.getLogger("agent")
 # Roles allowed in the inbound conversation history.
 _HISTORY_ROLES = {"user", "assistant"}
 
+# System prompt + the regulator skill playbook (built once at import).
+_SYSTEM_PROMPT = SYSTEM_PROMPT.rstrip() + "\n\n" + skills.render_skills()
+
 
 def _build_messages(question: str, history: list[dict]) -> list[dict]:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
     for m in history or []:
         role = m.get("role")
         content = m.get("content")

@@ -193,9 +193,11 @@ services:
         condition: service_healthy
     environment:
       # --- LLM provider (configurable; switch to bedrock on the AWS migration) ---
-      - LLM_PROVIDER=ollama
+      - LLM_PROVIDER=litellm
       # IMPORTANT: must be a tool-capable model. `ollama pull qwen2.5:7b-instruct` first.
-      - LLM_MODEL=qwen2.5:7b-instruct
+      - LLM_MODEL=Qwen3.6-27B
+      - LITELLM_API_BASE=http://192.168.10.45:4000/
+      - LITELLM_API_KEY=sk-pIQI4hKaiuWGIOUOYl9uFQ
       - OLLAMA_HOST=http://host.docker.internal:11434
       - LLM_MAX_TOOL_ITERATIONS=5
       # --- Tool execution target (existing backend) ---
