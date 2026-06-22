@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py agent.py config.py auth.py tools.py knowledge_base.py ./
+COPY app.py agent.py config.py auth.py tools.py knowledge_base.py skills.py ./
 COPY providers ./providers
 
 EXPOSE 5001
