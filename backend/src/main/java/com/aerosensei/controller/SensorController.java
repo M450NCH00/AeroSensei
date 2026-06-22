@@ -1,5 +1,6 @@
 package com.aerosensei.controller;
 
+import com.aerosensei.dto.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,10 +14,6 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 import com.aerosensei.service.SensorService;
-import com.aerosensei.dto.ClusterMaxDTO;
-import com.aerosensei.dto.SensorRegistrationDTO;
-import com.aerosensei.dto.SiteHistoricalDataDTO;
-import com.aerosensei.dto.SiteSensor15MinDTO;
 
 @RestController
 @RequestMapping("/api/sensors")
@@ -27,7 +24,7 @@ public class SensorController {
 
     private static final Logger logs = LoggerFactory.getLogger(SensorController.class);
   
-    // URL: GET http://localhost:8080/api/sensors/area/cluster?minLat=...&maxLat=...&minLon=...&maxLon=...&zoom=12
+    // URL: GET http://localhost:8081/api/sensors/area/cluster?minLat=...&maxLat=...&minLon=...&maxLon=...&zoom=12
     @GetMapping("/area/cluster")
     public ResponseEntity<List<ClusterMaxDTO>> getClusteredArea(
             @RequestParam BigDecimal minLat,
@@ -44,7 +41,19 @@ public class SensorController {
         return ResponseEntity.ok(clusteredData);
     }
 
-    // URL: GET http://localhost:8080/api/sensors/site/1/history
+    // URL: GET http://localhost:8081/api/sensors/area/critical?top=3
+    @GetMapping("/area/{topN}/critical")
+    public ResponseEntity<List<SensorReadingsDTO>> getAreaTopCritical(
+            @PathVariable Integer topN,
+            Authentication authentication) {
+
+        // Pass authentication to the service
+        List<SensorReadingsDTO> criticalData = sensorService.getCriticalReadings(topN, authentication);
+
+        return ResponseEntity.ok(criticalData);
+    }
+
+    // URL: GET http://localhost:8081/api/sensors/site/1/history
     @GetMapping("/site/{siteId}/history")
     public ResponseEntity<List<SiteHistoricalDataDTO>> getSiteHistory(
             @PathVariable Integer siteId,
@@ -54,17 +63,17 @@ public class SensorController {
         return ResponseEntity.ok(historyData);
     }
 
-    // URL: GET http://localhost:8080/api/sensors/site/1/average-15m
-    @GetMapping("/site/{siteId}/average-15m")
+    // URL: GET http://localhost:8081/api/sensors/site/1/readings-15m
+    @GetMapping("/site/{siteId}/readings-15m")
     public ResponseEntity<List<SiteSensor15MinDTO>> getSiteSensors15MinAverage(
             @PathVariable Integer siteId,
             Authentication authentication) {
 
-        List<SiteSensor15MinDTO> data = sensorService.getSiteSensors15MinAverage(siteId, authentication);
+        List<SiteSensor15MinDTO> data = sensorService.getSiteSensors15MinReadings(siteId, authentication);
         return ResponseEntity.ok(data);
     }
 
-    // URL: POST http://localhost:8080/api/sensors/register
+    // URL: POST http://localhost:8081/api/sensors/register
     @PostMapping("/register")
     public ResponseEntity<?> registerSensor(@RequestBody SensorRegistrationDTO dto, Authentication authentication) {
         try {
@@ -75,7 +84,7 @@ public class SensorController {
         }
     }
 
-    // URL: DELETE http://localhost:8080/api/sensors/{sensorId}
+    // URL: DELETE http://localhost:8081/api/sensors/{sensorId}
     @DeleteMapping("/{sensorId}")
     public ResponseEntity<?> deleteSensor(@PathVariable String sensorId, Authentication authentication) {
         try {

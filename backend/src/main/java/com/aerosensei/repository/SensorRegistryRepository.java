@@ -44,6 +44,15 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             @Param("maxLon") BigDecimal maxLon,
             @Param("userEmail") String userEmail);
 
+    //use to fetch the sensors from the company of the user
+    @Query(value = "SELECT sr.* FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id " +
+            "JOIN users u ON c.user_id = u.id " +
+            "WHERE u.email = :userEmail", nativeQuery = true)
+    List<SensorRegistry> findAllCompanySensorsByEmail(
+            @Param("userEmail") String userEmail);
+
     //use to fetch sensor by company and site name
     @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
             "FROM sensor_registry sr " +
@@ -56,6 +65,12 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
     // ==========================================
     // GOVERNMENT QUERY (NO EMAIL CHECK)
     // ==========================================
+    //use to fetch the sensors from the company of the user
+    @Query(value = "SELECT sr.* FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id ", nativeQuery = true)
+    List<SensorRegistry> findAllSensors();
+
     @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
             "FROM sensor_registry sr " +
             "JOIN company_sites cs ON sr.site_id = cs.id " +

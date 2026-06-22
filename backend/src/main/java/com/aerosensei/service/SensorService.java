@@ -1,5 +1,6 @@
 package com.aerosensei.service;
 
+import com.aerosensei.enums.PMBreachType;
 import com.influxdb.client.InfluxDBClient;
 import com.influxdb.query.FluxRecord;
 import com.influxdb.query.FluxTable;
@@ -18,11 +19,12 @@ import java.util.stream.Collectors;
 import java.util.concurrent.TimeUnit;
 import java.time.Instant;
 
+import com.aerosensei.enums.SiteState;
 import com.aerosensei.entity.SensorRegistry;
 import com.aerosensei.entity.CompanySite;
 import com.aerosensei.repository.SensorRegistryRepository;
 import com.aerosensei.repository.CompanySiteRepository;
-import com.aerosensei.dto.SensorAverageDTO;
+import com.aerosensei.dto.SensorReadingsDTO;
 import com.aerosensei.dto.ClusterMaxDTO;
 import com.aerosensei.dto.CompanyDashboardSensorDTO;
 import com.aerosensei.dto.SiteHistoricalDataDTO;
@@ -37,12 +39,6 @@ import com.github.davidmoten.geo.GeoHash;
 public class SensorService {
 
     private static final Logger logs = LoggerFactory.getLogger(SensorService.class);
-
-    public enum SiteState {
-        SAFE,
-        WARNING,
-        BREACHED
-    }
 
     @Autowired
     private InfluxDBClient influxDBClient;
@@ -214,9 +210,9 @@ public class SensorService {
     }
 
     // ==========================================
-    // GET 15-MINUTE AVERAGE FOR ALL SENSORS AT A SITE
+    // GET 15-MINUTE READINGS FOR ALL SENSORS AT A SITE
     // ==========================================
-    public List<SiteSensor15MinDTO> getSiteSensors15MinAverage(Integer siteId, Authentication authentication) {
+    public List<SiteSensor15MinDTO> getSiteSensors15MinReadings(Integer siteId, Authentication authentication) {
         String userEmail = authentication.getName();
 
         // 1. Check Role
@@ -224,7 +220,7 @@ public class SensorService {
                 .map(auth -> auth.getAuthority().toUpperCase())
                 .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
 
-        logs.info("Fetching 15m averages for Site: {} | User: {} | isGov: {}", siteId, userEmail, isGovernment);
+        logs.info("Fetching 15m readings for Site: {} | User: {} | isGov: {}", siteId, userEmail, isGovernment);
 
         // 2. Fetch the metadata array based on role (reusing your existing repository queries!)
         List<Object[]> results;
@@ -246,12 +242,16 @@ public class SensorService {
             dto.setLongitude((BigDecimal) row[4]);
             dto.setStatus((String) row[5]);
 
-            // This is super fast because it hits your 10-minute Redis cache first.
-            SensorAverageDTO avg15m = getRealTimeAverage(dto.getSensorId());
+            // This is super fast because it hits your 1-minute Redis cache first.
+            SensorReadingsDTO readings15m = getRealTimeReadings(dto.getSensorId());
 
-            dto.setPm25(avg15m.getPm25());
-            dto.setPm10(avg15m.getPm10());
-            dto.setLastCalculated(avg15m.getLastCalculated());
+            dto.setAvgPm25(readings15m.getAvgPm25());
+            dto.setAvgPm10(readings15m.getAvgPm10());
+            dto.setMaxPm25(readings15m.getMaxPm25());
+            dto.setMaxPm10(readings15m.getMaxPm10());
+            dto.setBreachType(readings15m.getBreachType());
+            dto.setState(readings15m.getState());
+            dto.setLastCalculated(readings15m.getLastCalculated());
 
             responseList.add(dto);
         }
@@ -313,24 +313,54 @@ public class SensorService {
             double sumLon = 0;
 
             // Track the maximum PM values in this cluster
-            double maxPm25 = -1.0;
-            double maxPm10 = -1.0;
+            double maxAvgPm25 = -1.0;
+            double maxAvgPm10 = -1.0;
+
+            // Track the absolute worst-case peaks
+            double absolutePeakPm25 = -1.0;
+            double absolutePeakPm10 = -1.0;
+
+            SiteState clusterState = SiteState.SAFE;
+
+            Set<PMBreachType> clusterBreachTypes = new HashSet<>();
 
             int validSensorCount = 0;
 
             for (SensorRegistry sensor : cellSensors) {
                 // Get the ultra-fast cached real-time data
-                SensorAverageDTO liveData = getRealTimeAverage(sensor.getSensorId());
+                SensorReadingsDTO liveData = getRealTimeReadings(sensor.getSensorId());
 
-                if (liveData.getPm25() == null) continue; // Skip offline sensors
+                if (liveData.getAvgPm25() == null) continue; // Skip offline sensors
 
                 // Sum up ACTUAL coordinates for the centroid calculation
                 sumLat += sensor.getLatitude().doubleValue();
                 sumLon += sensor.getLongitude().doubleValue();
 
-                // Compare and store the highest PM value found in this cluster
-                maxPm25 = Math.max(maxPm25, liveData.getPm25());
-                maxPm10 = Math.max(maxPm10, liveData.getPm10());
+                // 1. Find the highest sustained average in this cluster
+                maxAvgPm25 = Math.max(maxAvgPm25, liveData.getAvgPm25());
+                maxAvgPm10 = Math.max(maxAvgPm10, liveData.getAvgPm10());
+
+                // 2. Find the highest absolute peak in this cluster
+                absolutePeakPm25 = Math.max(absolutePeakPm25, liveData.getMaxPm25());
+                absolutePeakPm10 = Math.max(absolutePeakPm10, liveData.getMaxPm10());
+
+                // 3. Escalate the cluster state based on the worst sensor
+                if (liveData.getState() == SiteState.BREACHED) {
+                    clusterState = SiteState.BREACHED;
+                } else if (liveData.getState() == SiteState.WARNING && clusterState != SiteState.BREACHED) {
+                    clusterState = SiteState.WARNING;
+                }
+
+                PMBreachType sensorBreach = liveData.getBreachType();
+                if (sensorBreach != null && sensorBreach != PMBreachType.NONE) {
+                    // Deconstruct MULTIPLE into its base components
+                    if (sensorBreach == PMBreachType.MULTIPLE) {
+                        clusterBreachTypes.add(PMBreachType.PM2_5);
+                        clusterBreachTypes.add(PMBreachType.PM10);
+                    } else {
+                        clusterBreachTypes.add(sensorBreach);
+                    }
+                }
 
                 validSensorCount++;
             }
@@ -342,17 +372,32 @@ public class SensorService {
             double centroidLat = sumLat / validSensorCount;
             double centroidLon = sumLon / validSensorCount;
 
-            // Round the maximum values to 2 decimal places (no longer dividing by count)
-            double finalMaxPm25 = Math.round(maxPm25 * 100.0) / 100.0;
-            double finalMaxPm10 = Math.round(maxPm10 * 100.0) / 100.0;
+            // Round the maximum values to 2 decimal places
+            double finalMaxAvgPm25 = Math.round(maxAvgPm25 * 100.0) / 100.0;
+            double finalMaxAvgPm10 = Math.round(maxAvgPm10 * 100.0) / 100.0;
+            double finalMaxPeakPm25 = Math.round(absolutePeakPm25 * 100.0) / 100.0;
+            double finalMaxPeakPm10 = Math.round(absolutePeakPm10 * 100.0) / 100.0;
 
-            clusteredResults.add(new ClusterMaxDTO(
-                    BigDecimal.valueOf(centroidLat),
-                    BigDecimal.valueOf(centroidLon),
-                    finalMaxPm25,
-                    finalMaxPm10,
-                    validSensorCount
-            ));
+            PMBreachType finalBreachType = PMBreachType.NONE;
+            if (clusterBreachTypes.size() > 1) {
+                finalBreachType = PMBreachType.MULTIPLE;
+            } else if (clusterBreachTypes.size() == 1) {
+                finalBreachType = clusterBreachTypes.iterator().next();
+            }
+
+            // Pass the calculated clusterState into the new DTO
+            ClusterMaxDTO clusterMax = new ClusterMaxDTO();
+            clusterMax.setCenterLat(BigDecimal.valueOf(centroidLat));
+            clusterMax.setCenterLon(BigDecimal.valueOf(centroidLon));
+            clusterMax.setMaxAvgPm25(finalMaxAvgPm25);
+            clusterMax.setMaxAvgPm10(finalMaxAvgPm10);
+            clusterMax.setMaxPeakPm25(finalMaxPeakPm25);
+            clusterMax.setMaxPeakPm10(finalMaxPeakPm10);
+            clusterMax.setBreachType(finalBreachType);
+            clusterMax.setState(clusterState);
+            clusterMax.setSensorCount(validSensorCount);
+
+            clusteredResults.add(clusterMax);
         }
 
         logs.info("Reduced {} raw sensors into {} clean map clusters.", sensorsInArea.size(), clusteredResults.size());
@@ -432,12 +477,12 @@ public class SensorService {
     }
 
      //Get average for single sensor
-     public SensorAverageDTO getRealTimeAverage(String sensorId) {
+     public SensorReadingsDTO getRealTimeReadings(String sensorId) {
          logs.info("Requesting real-time average for sensor: {}", sensorId);
-         String redisKey = "sensor_avg:" + sensorId;
+         String redisKey = "sensor_state:" + sensorId;
 
          // Check Redis first
-         SensorAverageDTO cachedData = (SensorAverageDTO) redisTemplate.opsForValue().get(redisKey);
+         SensorReadingsDTO cachedData = (SensorReadingsDTO) redisTemplate.opsForValue().get(redisKey);
          if (cachedData != null) {
              logs.info("REDIS HIT: Returning cached data for sensor: {}", sensorId);
              return cachedData;
@@ -455,17 +500,26 @@ public class SensorService {
          String influxUuid = registry.getId().toString();
 
          // Query InfluxDB
+//         String fluxQuery = String.format(
+//                 "from(bucket:\"%s\") " +
+//                         "|> range(start: -15m) " +
+//                         "|> filter(fn: (r) => r._measurement == \"air_quality\") " +
+//                         "|> filter(fn: (r) => r.sensor_id == \"%s\") " +
+//                         "|> mean()", bucket, influxUuid
+//         );
          String fluxQuery = String.format(
-                 "from(bucket:\"%s\") " +
-                         "|> range(start: -15m) " +
-                         "|> filter(fn: (r) => r._measurement == \"air_quality\") " +
-                         "|> filter(fn: (r) => r.sensor_id == \"%s\") " +
-                         "|> mean()", bucket, influxUuid
+                 "data = from(bucket:\"%s\") " +
+                         "  |> range(start: -15m) " +
+                         "  |> filter(fn: (r) => r._measurement == \"air_quality\") " +
+                         "  |> filter(fn: (r) => r.sensor_id == \"%s\") \n" +
+                         "data |> mean() |> yield(name: \"mean_val\") \n" +
+                         "data |> max() |> yield(name: \"max_val\")",
+                 bucket, influxUuid
          );
 
          List<FluxTable> tables = influxDBClient.getQueryApi().query(fluxQuery, org);
 
-         SensorAverageDTO dto = new SensorAverageDTO();
+         SensorReadingsDTO dto = new SensorReadingsDTO();
          dto.setSensorId(sensorId);
          dto.setLocationName(registry.getSite().getSiteName());
          dto.setLastCalculated(Instant.now());
@@ -473,21 +527,70 @@ public class SensorService {
          for (FluxTable table : tables) {
              for (FluxRecord record : table.getRecords()) {
                  String field = record.getField();
-                 Double avgValue = (Double) record.getValue();
+                 Double value = (Double) record.getValue();
+                 String resultType = (String) record.getValueByKey("result");
 
-                 if (avgValue != null) {
-                     if ("pm2_5".equals(field)) {
-                         dto.setPm25(Math.round(avgValue * 100.0) / 100.0);
-                     } else if ("pm10".equals(field)) {
-                         dto.setPm10(Math.round(avgValue * 100.0) / 100.0);
+                 if (value != null) {
+                     if ("mean_val".equals(resultType)) {
+                         if ("pm2_5".equals(field)) dto.setAvgPm25(value);
+                         if ("pm10".equals(field)) dto.setAvgPm10(value);
+                     } else if ("max_val".equals(resultType)) {
+                         if ("pm2_5".equals(field)) dto.setMaxPm25(value);
+                         if ("pm10".equals(field)) dto.setMaxPm10(value);
                      }
                  }
              }
          }
 
-         // Save to Redis for 10 minutes
-         logs.info("Caching calculated average in Redis for 10 minutes for sensor: {}", sensorId);
-         redisTemplate.opsForValue().set(redisKey, dto, 10, TimeUnit.MINUTES);
+         SiteState pm25State = SiteState.SAFE;
+         SiteState pm10State = SiteState.SAFE;
+
+         if (dto.getAvgPm25() != null && dto.getMaxPm25() != null) {
+             if (dto.getMaxPm25() >= 50.0 || dto.getAvgPm25() > 40.0) {
+                 pm25State = SiteState.BREACHED;
+             } else if (dto.getAvgPm25() >= 30.0) {
+                 pm25State = SiteState.WARNING;
+             }
+         }
+
+         if (dto.getAvgPm10() != null && dto.getMaxPm10() != null) {
+             if (dto.getMaxPm10() >= 100.0 || dto.getAvgPm10() > 75.0) {
+                 pm10State = SiteState.BREACHED;
+             } else if (dto.getAvgPm10() >= 50.0) {
+                 pm10State = SiteState.WARNING;
+             }
+         }
+
+         // 4. Determine the Overall Worst-Case State
+         if (pm25State == SiteState.BREACHED || pm10State == SiteState.BREACHED) {
+             dto.setState(SiteState.BREACHED);
+         } else if (pm25State == SiteState.WARNING || pm10State == SiteState.WARNING) {
+             dto.setState(SiteState.WARNING);
+         } else {
+             dto.setState(SiteState.SAFE);
+         }
+
+         boolean hasPm25Issue = (pm25State != SiteState.SAFE);
+         boolean hasPm10Issue = (pm10State != SiteState.SAFE);
+
+         if (hasPm25Issue && hasPm10Issue) {
+             dto.setBreachType(PMBreachType.MULTIPLE);
+         } else if (hasPm25Issue) {
+             dto.setBreachType(PMBreachType.PM2_5);
+         } else if (hasPm10Issue) {
+             dto.setBreachType(PMBreachType.PM10);
+         } else {
+             dto.setBreachType(PMBreachType.NONE);
+         }
+
+         if (dto.getAvgPm25() != null) dto.setAvgPm25(Math.round(dto.getAvgPm25() * 100.0) / 100.0);
+         if (dto.getAvgPm10() != null) dto.setAvgPm10(Math.round(dto.getAvgPm10() * 100.0) / 100.0);
+         if (dto.getMaxPm25() != null) dto.setMaxPm25(Math.round(dto.getMaxPm25() * 100.0) / 100.0);
+         if (dto.getMaxPm10() != null) dto.setMaxPm10(Math.round(dto.getMaxPm10() * 100.0) / 100.0);
+
+         // Save to Redis for 1 minute (avoids spam + stale data)
+         logs.info("Caching calculated average in Redis for 1 minute for sensor: {}", sensorId);
+         redisTemplate.opsForValue().set(redisKey, dto, 1, TimeUnit.MINUTES);
 
          return dto;
      }
@@ -565,5 +668,88 @@ public class SensorService {
 
         logs.info("Deleting sensor: {} | User: {}", sensorId, userEmail);
         registryRepository.deleteBySensorId(sensorId);
+    }
+
+    // ==========================================
+    // GET TOP N CRITICAL SENSORS
+    // ==========================================
+    public List<SensorReadingsDTO> getCriticalReadings(int topN, Authentication authentication) {
+
+        // 1. Identify who is asking
+        String userEmail = authentication.getName();
+        boolean isGovernment = authentication.getAuthorities().stream()
+                .map(auth -> auth.getAuthority().toUpperCase())
+                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+
+        // 2. Fetch ALL relevant sensors (No coordinate boundaries)
+        List<SensorRegistry> allSensors;
+        if (isGovernment) {
+            allSensors = registryRepository.findAllSensors();
+        } else {
+            allSensors = registryRepository.findAllCompanySensorsByEmail(userEmail);
+        }
+
+        if (allSensors.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 3. Map, Filter, Sort, and Limit in a single efficient Stream
+        return allSensors.stream()
+                // Fetch the live data (hits Redis cache instantly for most)
+                .map(sensor -> getRealTimeReadings(sensor.getSensorId()))
+                // Filter out offline sensors
+                .filter(readings -> readings.getAvgPm25() != null)
+                // Sort using our Tri-Level Escalation Logic
+                .sorted((a, b) -> {
+                    // Tie-Breaker 1: Site State (BREACHED > WARNING > SAFE)
+                    int stateCompare = Integer.compare(getSeverityScore(b.getState()), getSeverityScore(a.getState()));
+                    if (stateCompare != 0) return stateCompare;
+
+                    // Tie-Breaker 2: Breach Type (MULTIPLE > Single > NONE)
+                    int typeCompare = Integer.compare(getTypeScore(b.getBreachType()), getTypeScore(a.getBreachType()));
+                    if (typeCompare != 0) return typeCompare;
+
+                    // Tie-Breaker 3: Severity Percentage (Calculated on the fly)
+                    return Double.compare(calculateDynamicSeverity(b), calculateDynamicSeverity(a));
+                })
+                // Grab only the Top N most critical globally
+                .limit(topN)
+                .collect(Collectors.toList());
+    }
+
+    // Helper Methods for getCriticalReadings()
+    private double calculateDynamicSeverity(SensorReadingsDTO dto) {
+        double pm25Severity = 0.0;
+        if (dto.getAvgPm25() != null && dto.getMaxPm25() != null) {
+            pm25Severity = Math.max(dto.getAvgPm25() / 40.0, dto.getMaxPm25() / 50.0);
+        }
+
+        double pm10Severity = 0.0;
+        if (dto.getAvgPm10() != null && dto.getMaxPm10() != null) {
+            pm10Severity = Math.max(dto.getAvgPm10() / 75.0, dto.getMaxPm10() / 100.0);
+        }
+
+        return Math.max(pm25Severity, pm10Severity);
+    }
+
+    private int getSeverityScore(SiteState state) {
+        if (state == null) return 0;
+        switch (state) {
+            case BREACHED: return 3;
+            case WARNING: return 2;
+            case SAFE: return 1;
+            default: return 0;
+        }
+    }
+
+    private int getTypeScore(PMBreachType type) {
+        if (type == null) return 0;
+        switch (type) {
+            case MULTIPLE: return 3;
+            case PM2_5:
+            case PM10: return 2;
+            case NONE: return 1;
+            default: return 0;
+        }
     }
 }
