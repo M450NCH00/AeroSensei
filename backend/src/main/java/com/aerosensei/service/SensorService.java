@@ -245,7 +245,7 @@ public class SensorService {
             dto.setLongitude((BigDecimal) row[4]);
             dto.setStatus((String) row[5]);
 
-            // This is super fast because it hits your 10-minute Redis cache first.
+            // This is super fast because it hits your 1-minute Redis cache first.
             SensorReadingsDTO readings15m = getRealTimeReadings(dto.getSensorId());
 
             dto.setAvgPm25(readings15m.getAvgPm25());
@@ -584,9 +584,9 @@ public class SensorService {
          if (dto.getMaxPm25() != null) dto.setMaxPm25(Math.round(dto.getMaxPm25() * 100.0) / 100.0);
          if (dto.getMaxPm10() != null) dto.setMaxPm10(Math.round(dto.getMaxPm10() * 100.0) / 100.0);
 
-         // Save to Redis for 10 minutes (avoids spam + stale data)
-         logs.info("Caching calculated average in Redis for 10 minutes for sensor: {}", sensorId);
-         redisTemplate.opsForValue().set(redisKey, dto, 10, TimeUnit.MINUTES);
+         // Save to Redis for 1 minutes (avoids spam + stale data)
+         logs.info("Caching calculated average in Redis for 1 minutes for sensor: {}", sensorId);
+         redisTemplate.opsForValue().set(redisKey, dto, 1, TimeUnit.MINUTES);
 
          return dto;
      }
