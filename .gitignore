@@ -1,0 +1,59 @@
+# ── Secrets & environment ─────────────────────────────────────────────
+# Never commit real credentials. Keep *.env.example as the tracked template.
+.env
+.env.*
+!.env.example
+!*.env.example
+*.pem
+*.key
+
+# ── Python (ai_agent, telegram_bot, seeder, s3) ───────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+# Test / type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Node / Next.js (aerosense-kinetic also has its own .gitignore) ────
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Java / Spring Boot (backend also has its own .gitignore) ──────────
+target/
+*.class
+
+# ── Docker / data volumes ─────────────────────────────────────────────
+*.log
+logs/
+
+# ── IDE / editor ──────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# ── OS ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Claude Code (keep shared config, ignore local overrides) ──────────
+.claude/settings.local.json
