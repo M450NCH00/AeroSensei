@@ -9,7 +9,10 @@ CREATE TABLE companies
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Seed Vietnam companies linked to seeded users with their respective sectors
+-- Seed Vietnam companies linked to seeded users with their respective sectors.
+-- A handful of well-known companies are intentionally seeded with sector_id = NULL
+-- (unclassified) so the AI agent's web-research sector-classification skill can be
+-- tested end to end: research what they do -> assign the right sector.
 INSERT INTO companies (user_id, company_name, carbon_credits, sector_id)
 VALUES
     ((SELECT id FROM users WHERE email = 'vingroup.company@aerosensei.vn'),                       'Vingroup Company',                            65047.58, (SELECT id FROM sectors WHERE name = 'Conglomerate')),
@@ -17,14 +20,14 @@ VALUES
     ((SELECT id FROM users WHERE email = 'bid@aerosensei.vn'),                                    'BIDV',                                        67890.70, (SELECT id FROM sectors WHERE name = 'Banking')),
     ((SELECT id FROM users WHERE email = 'vpb@aerosensei.vn'),                                    'VPBank',                                      79003.84, (SELECT id FROM sectors WHERE name = 'Banking')),
     ((SELECT id FROM users WHERE email = 'petrovietnam.gas@aerosensei.vn'),                       'Petrovietnam Gas',                            65797.02, (SELECT id FROM sectors WHERE name = 'Energy')),
-    ((SELECT id FROM users WHERE email = 'hoa.phat.group@aerosensei.vn'),                         'Hoa Phat Group',                              24964.22, (SELECT id FROM sectors WHERE name = 'Materials')),
-    ((SELECT id FROM users WHERE email = 'vinfast.auto@aerosensei.vn'),                           'VinFast Auto',                                26882.56, (SELECT id FROM sectors WHERE name = 'Automotive')),
+    ((SELECT id FROM users WHERE email = 'hoa.phat.group@aerosensei.vn'),                         'Hoa Phat Group',                              24964.22, NULL), -- unclassified: test AI sector classification
+    ((SELECT id FROM users WHERE email = 'vinfast.auto@aerosensei.vn'),                           'VinFast Auto',                                26882.56, NULL), -- unclassified: test AI sector classification
     ((SELECT id FROM users WHERE email = 'asia.commercial.joint.stock.bank@aerosensei.vn'),       'Asia Commercial Joint Stock Bank',            25677.28, (SELECT id FROM sectors WHERE name = 'Banking')),
     ((SELECT id FROM users WHERE email = 'saigon.thuong.tin.commercial.bank@aerosensei.vn'),      'Saigon Thuong Tin Commercial Bank',           48242.98, (SELECT id FROM sectors WHERE name = 'Banking')),
     ((SELECT id FROM users WHERE email = 'hdb@aerosensei.vn'),                                    'HD Bank',                                     30893.53, (SELECT id FROM sectors WHERE name = 'Banking')),
-    ((SELECT id FROM users WHERE email = 'fpt.corporation@aerosensei.vn'),                        'FPT Corporation',                             34451.04, (SELECT id FROM sectors WHERE name = 'Technology')),
-    ((SELECT id FROM users WHERE email = 'vinamilk.vietnam.dairy.products@aerosensei.vn'),        'Vinamilk',                                    36127.21, (SELECT id FROM sectors WHERE name = 'Consumer Staples')),
-    ((SELECT id FROM users WHERE email = 'vietjet.aviation@aerosensei.vn'),                       'VietJet Aviation',                            24559.48, (SELECT id FROM sectors WHERE name = 'Transportation')),
+    ((SELECT id FROM users WHERE email = 'fpt.corporation@aerosensei.vn'),                        'FPT Corporation',                             34451.04, NULL), -- unclassified: test AI sector classification
+    ((SELECT id FROM users WHERE email = 'vinamilk.vietnam.dairy.products@aerosensei.vn'),        'Vinamilk',                                    36127.21, NULL), -- unclassified: test AI sector classification
+    ((SELECT id FROM users WHERE email = 'vietjet.aviation@aerosensei.vn'),                       'VietJet Aviation',                            24559.48, NULL), -- unclassified: test AI sector classification
     ((SELECT id FROM users WHERE email = 'masan.group@aerosensei.vn'),                            'Masan Group',                                 49821.67, (SELECT id FROM sectors WHERE name = 'Consumer Staples')),
     ((SELECT id FROM users WHERE email = 'vietnam.airlines@aerosensei.vn'),                       'Vietnam Airlines',                            22674.91, (SELECT id FROM sectors WHERE name = 'Transportation')),
     ((SELECT id FROM users WHERE email = 'ssi.securities.corporation@aerosensei.vn'),             'SSI Securities Corporation',                  46204.57, (SELECT id FROM sectors WHERE name = 'Financial Services')),

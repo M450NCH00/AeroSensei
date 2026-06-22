@@ -88,6 +88,35 @@ SKILLS: list[Skill] = [
         ],
     ),
     Skill(
+        name="Company sector classification",
+        when_to_use=(
+            "The regulator wants to research what a company does and allocate/assign "
+            "it to the right industry sector (e.g. a newly registered or "
+            "unclassified company)."
+        ),
+        tools=[
+            "list_companies",
+            "list_sectors",
+            "web_search",
+            "fetch_company_page",
+            "assign_company_sector",
+        ],
+        steps=[
+            "Call list_companies to get the company's id and name (note who is "
+            "missing a sector). Call list_sectors to get the valid sectors, their "
+            "ids and descriptions — these are the ONLY allowed targets.",
+            "Research the company with web_search (e.g. '<company name> what they do "
+            "industry'); read the most relevant result with fetch_company_page to "
+            "confirm its core business activity.",
+            "Map the company's activity to the single best-matching sector by "
+            "comparing against each sector's name/description. If no sector clearly "
+            "fits, say so and ask the regulator rather than guessing.",
+            "State your evidence and the chosen sector, then call "
+            "assign_company_sector with the company's id and that sector's id. "
+            "Report the assignment and the reasoning.",
+        ],
+    ),
+    Skill(
         name="Compliance-cycle & allocation management",
         when_to_use=(
             "The regulator asks about compliance cycle phase/status, or how carbon "

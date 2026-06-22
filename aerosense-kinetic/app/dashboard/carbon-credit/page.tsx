@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Settings2, Plus, X, Pencil, Trash2, FlaskConical,
   Building2, TrendingUp, TrendingDown, Users, ChevronDown, Check, Loader2,
-  BarChart3, FileText, RefreshCw, Leaf,
+  BarChart3, FileText, RefreshCw, Leaf, Sparkles,
 } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
 import { useAuth } from "@/app/context/AuthContext";
@@ -117,6 +117,11 @@ export default function CarbonCreditPage() {
   const [assigningCompanyId, setAssigningCompanyId] = useState<number | null>(null);
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // AI auto-classification (web research -> sector assignment via the AI agent)
+  const [autoClassifying, setAutoClassifying] = useState(false);
+  const [autoClassifyProgress, setAutoClassifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const [autoClassifyResult, setAutoClassifyResult] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -361,6 +366,56 @@ export default function CarbonCreditPage() {
     } finally {
       setAssigningCompanyId(null);
     }
+  };
+
+  // Ask the AI agent to research each unclassified company on the web and assign
+  // it to the best-matching sector. One company per request keeps each agent turn
+  // within its tool-iteration budget; we refresh the table from the backend after.
+  const autoClassifySectors = async () => {
+    const unassigned = companies.filter(c => !c.sectorId);
+    if (unassigned.length === 0) {
+      setAutoClassifyResult("Every company already has a sector assigned.");
+      return;
+    }
+    setError(null);
+    setAutoClassifyResult(null);
+    setAutoClassifying(true);
+    setAutoClassifyProgress({ done: 0, total: unassigned.length });
+
+    const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+    let failures = 0;
+    for (let i = 0; i < unassigned.length; i++) {
+      const c = unassigned[i];
+      const name = c.companyName ?? c.email;
+      try {
+        const res = await fetch(`${aiAgentUrl}/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            question:
+              `Research what the company "${name}" (companyId ${c.companyId}) does, ` +
+              `then assign it to the single most appropriate existing sector using the ` +
+              `assign_company_sector tool. If no sector clearly fits, leave it unassigned.`,
+          }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+      } catch {
+        failures += 1;
+      }
+      setAutoClassifyProgress({ done: i + 1, total: unassigned.length });
+    }
+
+    // Reflect whatever the agent persisted on the backend.
+    await fetchCompanies();
+    setAutoClassifying(false);
+    setAutoClassifyProgress(null);
+    const ok = unassigned.length - failures;
+    setAutoClassifyResult(
+      `AI classification finished: processed ${ok}/${unassigned.length} compan${ok === 1 ? "y" : "ies"}` +
+      (failures ? `, ${failures} could not be reached.` : ".") +
+      " Review the assignments below and adjust any that look off."
+    );
   };
 
   // ── Company-view helpers ──────────────────────────────────────────────────
@@ -986,11 +1041,28 @@ export default function CarbonCreditPage() {
           ) : (
             <div ref={dropdownRef} className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
               {/* Header row with year selector */}
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                   {companies.length} companies
+                  {(() => {
+                    const n = companies.filter(c => !c.sectorId).length;
+                    return n > 0 ? <span className="ml-2 text-[#F28C28] normal-case">· {n} unclassified</span> : null;
+                  })()}
                 </p>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={autoClassifySectors}
+                    disabled={autoClassifying || companies.filter(c => !c.sectorId).length === 0}
+                    title="Research unclassified companies on the web and auto-assign their sector"
+                    className="flex items-center gap-2 px-4 py-2 bg-[#009B9E] text-white text-xs font-bold rounded-xl hover:bg-[#007d80] transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {autoClassifying
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Sparkles size={14} />}
+                    {autoClassifying
+                      ? `Classifying ${autoClassifyProgress?.done ?? 0}/${autoClassifyProgress?.total ?? 0}…`
+                      : "Auto-classify (AI)"}
+                  </button>
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Consumption year</span>
                   <select
                     value={companiesYear}
@@ -1008,6 +1080,13 @@ export default function CarbonCreditPage() {
                   </select>
                 </div>
               </div>
+
+              {autoClassifyResult && (
+                <div className="mx-6 mt-4 p-3.5 bg-[#009B9E]/5 border border-[#009B9E]/20 rounded-2xl text-xs font-bold text-[#007d80] flex justify-between items-start gap-3">
+                  <span className="flex items-center gap-2"><Sparkles size={14} className="shrink-0" />{autoClassifyResult}</span>
+                  <button onClick={() => setAutoClassifyResult(null)} className="cursor-pointer shrink-0"><X size={14} /></button>
+                </div>
+              )}
 
               <div className="px-6 py-3 grid grid-cols-12 gap-4 border-b border-gray-100 bg-gray-50/40">
                 <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Company</span>

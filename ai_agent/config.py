@@ -48,6 +48,12 @@ MAX_TOOL_ITERATIONS = int(os.getenv("LLM_MAX_TOOL_ITERATIONS", "5"))
 BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://backend:8081").rstrip("/")
 BACKEND_TIMEOUT = float(os.getenv("BACKEND_TIMEOUT", "20"))
 
+# --- Web research (open-web search + page fetch for sector classification) ---
+WEB_TIMEOUT = float(os.getenv("WEB_TIMEOUT", "15"))
+WEB_MAX_RESULTS = int(os.getenv("WEB_MAX_RESULTS", "5"))
+# Cap fetched page text so a huge page can't blow past the model's context window.
+WEB_FETCH_MAX_CHARS = int(os.getenv("WEB_FETCH_MAX_CHARS", "6000"))
+
 # --- Auth ---
 # Shared HS256 secret used by the backend to sign JWTs. The agent verifies the
 # caller's token with the same secret. MUST match the backend's JWT_SECRET.

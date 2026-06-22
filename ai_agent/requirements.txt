@@ -3,6 +3,8 @@ flask-cors==5.0.0
 ollama==0.4.7
 requests==2.32.3
 PyJWT==2.10.1
+# Web research: parse search-result and company pages into clean text.
+beautifulsoup4==4.12.3
 # litellm is only needed for the LiteLLM provider (LLM_PROVIDER=litellm).
 litellm==1.61.0
 # boto3 is only needed for the future Bedrock provider; install it then.
