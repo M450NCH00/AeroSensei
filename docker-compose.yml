@@ -270,7 +270,10 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8080
       - NEXT_PUBLIC_AI_AGENT_URL=http://localhost:5001
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      # Use 127.0.0.1 (IPv4), not localhost: inside the container localhost
+      # resolves to IPv6 ::1, but next-server listens on IPv4 0.0.0.0 only —
+      # probing localhost gets "connection refused" and falsely marks unhealthy.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
