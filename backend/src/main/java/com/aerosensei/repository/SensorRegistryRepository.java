@@ -59,6 +59,15 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             "JOIN company_sites cs ON sr.site_id = cs.id " +
             "JOIN companies c ON cs.company_id = c.id " +
             "JOIN users u ON c.user_id = u.id " +
+            "WHERE u.email = :email", nativeQuery = true)
+    List<Object[]> findSensorsDetailsByEmail(@Param("email") String email);
+
+    //use to fetch sensor by company and site name
+    @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
+            "FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id " +
+            "JOIN users u ON c.user_id = u.id " +
             "WHERE u.email = :email AND cs.id = :siteId", nativeQuery = true)
     List<Object[]> findSensorsBySiteAndEmail(@Param("email") String email, @Param("siteId") Integer siteId);
 
@@ -70,6 +79,12 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             "JOIN company_sites cs ON sr.site_id = cs.id " +
             "JOIN companies c ON cs.company_id = c.id ", nativeQuery = true)
     List<SensorRegistry> findAllSensors();
+
+    @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
+            "FROM sensor_registry sr " +
+            "JOIN company_sites cs ON sr.site_id = cs.id " +
+            "JOIN companies c ON cs.company_id = c.id ", nativeQuery = true)
+    List<Object[]> findAllSensorsDetails();
 
     @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
             "FROM sensor_registry sr " +

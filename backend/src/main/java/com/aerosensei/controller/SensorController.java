@@ -71,6 +71,15 @@ public class SensorController {
     }
 
     // URL: GET http://localhost:8081/api/sensors/site/1/readings-15m
+    @GetMapping("/site/all-readings-15m")
+    public ResponseEntity<List<SiteSensor15MinDTO>> getSiteSensors15MinAverage(
+            Authentication authentication) {
+
+        List<SiteSensor15MinDTO> data = sensorService.getSiteSensors15MinReadings(-1, authentication);
+        return ResponseEntity.ok(data);
+    }
+
+    // URL: GET http://localhost:8081/api/sensors/site/1/readings-15m
     @GetMapping("/site/{siteId}/readings-15m")
     public ResponseEntity<List<SiteSensor15MinDTO>> getSiteSensors15MinAverage(
             @PathVariable Integer siteId,

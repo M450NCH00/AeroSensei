@@ -214,14 +214,23 @@ public class SensorService {
                 .map(auth -> auth.getAuthority().toUpperCase())
                 .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
 
-        logs.info("Fetching 15m readings for Site: {} | User: {} | isGov: {}", siteId, userEmail, isGovernment);
-
         // 2. Fetch the metadata array based on role (reusing your existing repository queries!)
         List<Object[]> results;
-        if (isGovernment) {
-            results = registryRepository.findAllSensorsBySiteId(siteId);
+
+        if (siteId.equals(-1)) {
+            logs.info("Fetching 15m readings for Site: All | User: {} | isGov: {}", userEmail, isGovernment);
+            if (isGovernment) {
+                results = registryRepository.findAllSensorsDetails();
+            } else {
+                results = registryRepository.findSensorsDetailsByEmail(userEmail);
+            }
         } else {
-            results = registryRepository.findSensorsBySiteAndEmail(userEmail, siteId);
+            logs.info("Fetching 15m readings for Site: {} | User: {} | isGov: {}", siteId, userEmail, isGovernment);
+            if (isGovernment) {
+                results = registryRepository.findAllSensorsBySiteId(siteId);
+            } else {
+                results = registryRepository.findSensorsBySiteAndEmail(userEmail, siteId);
+            }
         }
 
         // 3. Map the data and fetch the cached 15-min averages
@@ -236,7 +245,7 @@ public class SensorService {
             dto.setLongitude((BigDecimal) row[4]);
             dto.setStatus((String) row[5]);
 
-            // This is super fast because it hits your 1-minute Redis cache first.
+            // This is super fast because it hits your 10-minute Redis cache first.
             SensorReadingsDTO readings15m = getRealTimeReadings(dto.getSensorId());
 
             dto.setAvgPm25(readings15m.getAvgPm25());
@@ -494,13 +503,6 @@ public class SensorService {
          String influxUuid = registry.getId().toString();
 
          // Query InfluxDB
-//         String fluxQuery = String.format(
-//                 "from(bucket:\"%s\") " +
-//                         "|> range(start: -15m) " +
-//                         "|> filter(fn: (r) => r._measurement == \"air_quality\") " +
-//                         "|> filter(fn: (r) => r.sensor_id == \"%s\") " +
-//                         "|> mean()", bucket, influxUuid
-//         );
          String fluxQuery = String.format(
                  "data = from(bucket:\"%s\") " +
                          "  |> range(start: -15m) " +
@@ -582,9 +584,9 @@ public class SensorService {
          if (dto.getMaxPm25() != null) dto.setMaxPm25(Math.round(dto.getMaxPm25() * 100.0) / 100.0);
          if (dto.getMaxPm10() != null) dto.setMaxPm10(Math.round(dto.getMaxPm10() * 100.0) / 100.0);
 
-         // Save to Redis for 1 minute (avoids spam + stale data)
-         logs.info("Caching calculated average in Redis for 1 minute for sensor: {}", sensorId);
-         redisTemplate.opsForValue().set(redisKey, dto, 1, TimeUnit.MINUTES);
+         // Save to Redis for 10 minutes (avoids spam + stale data)
+         logs.info("Caching calculated average in Redis for 10 minutes for sensor: {}", sensorId);
+         redisTemplate.opsForValue().set(redisKey, dto, 10, TimeUnit.MINUTES);
 
          return dto;
      }
