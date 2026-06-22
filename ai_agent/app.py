@@ -1,42 +1,62 @@
-from flask import Flask, request, jsonify
+"""Flask entrypoint for the AeroSense regulator AI assistant.
+
+Exposes:
+  GET  /health  -> liveness probe
+  POST /ask     -> authenticated, tool-calling agent turn
+
+Auth: the caller's accessToken cookie (issued by the backend) is verified and
+the role checked (ADMIN-only for now). The same token is forwarded to the
+backend on every tool call.
+"""
+import logging
+import os
+
+from flask import Flask, jsonify, request
 from flask_cors import CORS
-from ollama import chat
-from knowledge_base import SYSTEM_PROMPT
+
+import agent
+import config
+from auth import AuthError, authenticate
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("app")
 
 app = Flask(__name__)
-CORS(app)
 
-@app.route('/health', methods=['GET'])
+# Allow credentials so the browser sends the httpOnly accessToken cookie.
+_allowed_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+CORS(app, resources={r"/*": {"origins": _allowed_origin}}, supports_credentials=True)
+
+
+@app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"}), 200
+    return jsonify({"status": "ok", "provider": config.LLM_PROVIDER, "model": config.LLM_MODEL}), 200
 
-@app.route('/ask', methods=['POST'])
+
+@app.route("/ask", methods=["POST"])
 def ask():
+    # 1. Authenticate + authorize the caller.
+    try:
+        token, claims = authenticate(request)
+    except AuthError as e:
+        return jsonify({"error": str(e)}), e.status
 
-    data = request.json
+    # 2. Validate input.
+    data = request.get_json(silent=True) or {}
+    question = (data.get("question") or "").strip()
+    if not question:
+        return jsonify({"error": "Field 'question' is required"}), 400
+    history = data.get("messages") or []
 
-    user_question = data["question"]
+    # 3. Run the agent loop.
+    try:
+        answer = agent.run(question, history, token)
+    except Exception:
+        log.exception("Agent failed for user=%s", claims.get("sub"))
+        return jsonify({"error": "The assistant encountered an internal error."}), 500
 
-    response = chat(
-        model='qwen3:0.6b',
-        messages=[
-            {
-                'role': 'system',
-                'content': SYSTEM_PROMPT
-            },
-            {
-                'role': 'user',
-                'content': user_question
-            }
-        ]
-    )
+    return jsonify({"answer": answer})
 
-    return jsonify({
-        "answer": response['message']['content']
-    })
 
-if __name__ == '__main__':
-    app.run(
-        host='0.0.0.0',
-        port=5001
-    )
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5001)

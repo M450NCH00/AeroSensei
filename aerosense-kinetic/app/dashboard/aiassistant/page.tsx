@@ -40,10 +40,14 @@ export default function AIAssistantPage() {
 
     try {
       const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+      // Send prior turns for context and include credentials so the httpOnly
+      // accessToken cookie reaches the agent (it forwards it to the backend).
+      const history = messages.map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch(`${aiAgentUrl}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: text }),
+        credentials: "include",
+        body: JSON.stringify({ question: text, messages: history }),
       });
 
       if (!res.ok) throw new Error(`Server error: ${res.status}`);

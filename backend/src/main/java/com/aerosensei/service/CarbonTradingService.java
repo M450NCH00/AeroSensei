@@ -188,6 +188,14 @@ public class CarbonTradingService {
             throw new RuntimeException("Insufficient carbon credits to list");
         }
 
+        // Self-match guard: a sell ask at or below the company's own highest open
+        // buy bid would trade against itself. Reject it.
+        BigDecimal highestOwnBuyPrice = listingRepo.findMaxOpenBuyPrice(company);
+        if (highestOwnBuyPrice != null && pricePerCredit.compareTo(highestOwnBuyPrice) <= 0) {
+            throw new RuntimeException("Sell price must be above your own open buy request of "
+                    + highestOwnBuyPrice + " per credit");
+        }
+
         CarbonListing listing = new CarbonListing();
         listing.setSellerCompany(company);
         listing.setCreditsAmount(creditsAmount);
@@ -206,6 +214,14 @@ public class CarbonTradingService {
     public CarbonListing createBuyRequestPending(String email, BigDecimal creditsAmount,
                                                   BigDecimal maxPricePerCredit, String kafkaRequestId) {
         Company company = resolveCompany(email);
+
+        // Self-match guard: a buy bid at or above the company's own lowest open
+        // sell ask would trade against itself. Reject it.
+        BigDecimal lowestOwnSellPrice = listingRepo.findMinOpenSellPrice(company);
+        if (lowestOwnSellPrice != null && maxPricePerCredit.compareTo(lowestOwnSellPrice) >= 0) {
+            throw new RuntimeException("Bid price must be below your own open sell listing of "
+                    + lowestOwnSellPrice + " per credit");
+        }
 
         CarbonListing buyRequest = new CarbonListing();
         buyRequest.setBuyerCompany(company);
