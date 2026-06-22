@@ -13,7 +13,7 @@ export default function Sidebar() {
   const navLinks = [
     { name: "Overview Map", href: "/dashboard", icon: LayoutDashboard },
     { name: "AI Assistant", href: "/dashboard/aiassistant", icon: Bot },
-    { name: "Sensor Sites", href: "/dashboard/sites", icon: Map },
+    { name: "Company Sites", href: "/dashboard/sites", icon: Map },
     { name: "Carbon Market", href: "/dashboard/carbon", icon: Leaf },
     { name: "Carbon Credit", href: "/dashboard/carbon-credit", icon: TrendingUp },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
