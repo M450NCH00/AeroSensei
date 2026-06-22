@@ -47,28 +47,34 @@ export default function DashboardHome() {
         alerts={mockAlerts} 
       />
 
-      <div className="flex-1 flex flex-col xl:flex-row gap-6 min-h-[calc(100vh-200px)]">
+      {/* THE FIX: We set the height to exactly match the viewport minus the 4rem page padding.
+        This allows you to scroll the header out of view, leaving the map and sidebar 
+        perfectly locked to the exact size of your screen. 
+      */}
+      <div className="w-full flex flex-col xl:flex-row gap-6 h-[calc(100vh-4rem)] min-h-[600px]">
         
         {/* Map View Canvas Workspace Wrapper */}
-        <div className="flex-1 relative rounded-[2rem] shadow-sm border border-gray-200/60 bg-white p-2 flex flex-col">
+        <div className="flex-1 relative rounded-[2rem] shadow-sm border border-gray-200/60 bg-white p-2 flex flex-col h-full">
           <div className="absolute top-6 left-6 z-10 bg-white/80 backdrop-blur-md px-4 py-2 rounded-xl border border-gray-100 text-xs font-bold text-[#005A8C] flex items-center gap-2 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-[#009B9E] animate-ping" />
             Live Geospatial Matrix
           </div>
           
-          <div className="w-full h-full min-h-[450px] xl:min-h-0 flex-1">
+          <div className="w-full h-full flex-1">
             {/* Renders your dynamic spatial-hashing cluster map node */}
             <DynamicMap />
           </div>
         </div>
         
-        {/* Analytics Insights Sidebar Area */}
-        <aside className="w-full xl:w-96 bg-white rounded-[2rem] shadow-sm border border-gray-200/60 p-6 flex flex-col gap-6 overflow-y-auto">
+        {/* Analytics Insights Sidebar Area 
+          THE FIX: Added 'h-full shrink-0' to lock its size to match the map, 
+          and 'overflow-y-auto' so the content scrolls internally!
+        */}
+        <aside className="w-full xl:w-96 shrink-0 bg-white rounded-[2rem] shadow-sm border border-gray-200/60 p-6 flex flex-col gap-6 h-full overflow-y-auto">
           <MacroDigest />
-          <HourlyAveragesChart />
           <CriticalNodesList />
 
-          <div className="p-4 bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-2xl flex items-center justify-between text-xs font-bold text-gray-500">
+          <div className="p-4 mt-auto bg-[#005A8C]/5 border border-[#005A8C]/10 rounded-2xl flex items-center justify-between text-xs font-bold text-gray-500">
             <div className="flex items-center gap-2">
               <Server size={14} className="text-[#005A8C]" />
               <span>DB Sync Telemetry</span>

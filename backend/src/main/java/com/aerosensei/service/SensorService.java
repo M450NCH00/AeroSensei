@@ -1,5 +1,6 @@
 package com.aerosensei.service;
 
+import com.aerosensei.dto.*;
 import com.aerosensei.enums.PMBreachType;
 import com.influxdb.client.InfluxDBClient;
 import com.influxdb.query.FluxRecord;
@@ -24,13 +25,6 @@ import com.aerosensei.entity.SensorRegistry;
 import com.aerosensei.entity.CompanySite;
 import com.aerosensei.repository.SensorRegistryRepository;
 import com.aerosensei.repository.CompanySiteRepository;
-import com.aerosensei.dto.SensorReadingsDTO;
-import com.aerosensei.dto.ClusterMaxDTO;
-import com.aerosensei.dto.CompanyDashboardSensorDTO;
-import com.aerosensei.dto.SiteHistoricalDataDTO;
-import com.aerosensei.dto.SiteSensor15MinDTO;
-import com.aerosensei.dto.SensorRegistrationDTO;
-
 
 
 import com.github.davidmoten.geo.GeoHash;
@@ -671,17 +665,51 @@ public class SensorService {
     }
 
     // ==========================================
-    // GET TOP N CRITICAL SENSORS
+    // GET MACRO DIGEST DATA
     // ==========================================
-    public List<SensorReadingsDTO> getCriticalReadings(int topN, Authentication authentication) {
-
-        // 1. Identify who is asking
+    public MacroDigestDTO getMacroDigest(Authentication authentication) {
         String userEmail = authentication.getName();
         boolean isGovernment = authentication.getAuthorities().stream()
                 .map(auth -> auth.getAuthority().toUpperCase())
                 .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
 
-        // 2. Fetch ALL relevant sensors (No coordinate boundaries)
+        List<SensorRegistry> allSensors;
+        if (isGovernment) {
+            allSensors = registryRepository.findAllSensors();
+        } else {
+            allSensors = registryRepository.findAllCompanySensorsByEmail(userEmail);
+        }
+
+        int totalSites = 0;
+        int warnings = 0;
+        int breaches = 0;
+
+        for (SensorRegistry sensor : allSensors) {
+            SensorReadingsDTO liveData = getRealTimeReadings(sensor.getSensorId());
+
+            if (liveData.getAvgPm25() == null) continue; // Skip offline sensors
+
+            totalSites++;
+
+            if (liveData.getState() == SiteState.BREACHED) {
+                breaches++;
+            } else if (liveData.getState() == SiteState.WARNING) {
+                warnings++;
+            }
+        }
+
+        return new MacroDigestDTO(totalSites, warnings, breaches);
+    }
+
+    // ==========================================
+    // GET TOP N CRITICAL SENSORS
+    // ==========================================
+    public List<SensorReadingsDTO> getCriticalReadings(int topN, Authentication authentication) {
+        String userEmail = authentication.getName();
+        boolean isGovernment = authentication.getAuthorities().stream()
+                .map(auth -> auth.getAuthority().toUpperCase())
+                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+
         List<SensorRegistry> allSensors;
         if (isGovernment) {
             allSensors = registryRepository.findAllSensors();
@@ -693,7 +721,6 @@ public class SensorService {
             return new ArrayList<>();
         }
 
-        // 3. Map, Filter, Sort, and Limit in a single efficient Stream
         return allSensors.stream()
                 // Fetch the live data (hits Redis cache instantly for most)
                 .map(sensor -> getRealTimeReadings(sensor.getSensorId()))

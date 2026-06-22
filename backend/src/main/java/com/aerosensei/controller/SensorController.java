@@ -41,6 +41,13 @@ public class SensorController {
         return ResponseEntity.ok(clusteredData);
     }
 
+    // URL: GET http://localhost:8081/api/sensors/digest
+    @GetMapping("/digest")
+    public ResponseEntity<MacroDigestDTO> getMacroDigest(Authentication authentication) {
+        MacroDigestDTO digest = sensorService.getMacroDigest(authentication);
+        return ResponseEntity.ok(digest);
+    }
+
     // URL: GET http://localhost:8081/api/sensors/area/critical?top=3
     @GetMapping("/area/{topN}/critical")
     public ResponseEntity<List<SensorReadingsDTO>> getAreaTopCritical(

@@ -3,19 +3,24 @@
 
 import { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
+import Link from "next/link";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import axiosInstance from "../api/axiosInstance";
 
-interface ClusterAverageDTO {
+// 1. UPDATED INTERFACE: Matches the new backend ClusterMaxDTO exactly
+interface ClusterMaxDTO {
   centerLat: number;
   centerLon: number;
-  avgPm25: number;
-  avgPm10: number;
+  maxAvgPm25: number;
+  maxAvgPm10: number;
+  maxPeakPm25: number;
+  maxPeakPm10: number;
   sensorCount: number;
+  state: "SAFE" | "WARNING" | "BREACHED";
+  breachType: "NONE" | "PM2_5" | "PM10" | "MULTIPLE";
 }
 
-// 1. UPDATED INTERFACE: Added 'zoom' to track the map's zoom level
 interface MapViewState {
   minLat: number;
   maxLat: number;
@@ -24,8 +29,12 @@ interface MapViewState {
   zoom: number; 
 }
 
-const createCustomIcon = (status: "good" | "warning", count: number) => {
-  const color = status === "good" ? "#009B9E" : "#F28C28";
+// 2. UPDATED ICON LOGIC: 3-Tier Color System
+const createCustomIcon = (state: "SAFE" | "WARNING" | "BREACHED", count: number) => {
+  let color = "#009B9E"; // Default Green for SAFE
+  if (state === "WARNING") color = "#F28C28"; // Orange
+  if (state === "BREACHED") color = "#E63946"; // Red
+  
   const isCluster = count > 1;
   const size = isCluster ? 32 : 18; 
   const innerText = isCluster ? `<span style="color: white; font-size: 11px; font-weight: 900;">${count}</span>` : "";
@@ -38,7 +47,7 @@ const createCustomIcon = (status: "good" | "warning", count: number) => {
       background-color: ${color}; 
       border-radius: 50%; 
       border: 3px solid white;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.15), 0 0 15px ${color}40;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15), 0 0 15px ${color}60;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -49,11 +58,6 @@ const createCustomIcon = (status: "good" | "warning", count: number) => {
   });
 };
 
-const determineStatus = (pm25: number): "good" | "warning" => {
-  return pm25 > 35.0 ? "warning" : "good";
-};
-
-// 2. UPDATED TRACKER: Captures map.getZoom() alongside the bounds
 function MapViewportTracker({ onMapChange }: { onMapChange: (state: MapViewState) => void }) {
   const map = useMapEvents({
     moveend() {
@@ -63,7 +67,7 @@ function MapViewportTracker({ onMapChange }: { onMapChange: (state: MapViewState
         maxLat: bounds.getNorthEast().lat,
         minLon: bounds.getSouthWest().lng,
         maxLon: bounds.getNorthEast().lng,
-        zoom: map.getZoom(), // Captures current zoom level
+        zoom: map.getZoom(), 
       });
     },
   });
@@ -75,7 +79,7 @@ function MapViewportTracker({ onMapChange }: { onMapChange: (state: MapViewState
       maxLat: initialBounds.getNorthEast().lat,
       minLon: initialBounds.getSouthWest().lng,
       maxLon: initialBounds.getNorthEast().lng,
-      zoom: map.getZoom(), // Captures initial zoom level
+      zoom: map.getZoom(), 
     });
   }, [map, onMapChange]);
 
@@ -83,8 +87,7 @@ function MapViewportTracker({ onMapChange }: { onMapChange: (state: MapViewState
 }
 
 export default function AeroMap() {
-  const [clusters, setClusters] = useState<ClusterAverageDTO[]>([]);
-  // Renamed from 'bounds' to 'mapState' since it now holds bounds + zoom
+  const [clusters, setClusters] = useState<ClusterMaxDTO[]>([]);
   const [mapState, setMapState] = useState<MapViewState | null>(null);
 
   useEffect(() => {
@@ -92,14 +95,13 @@ export default function AeroMap() {
 
     const fetchClusterData = async () => {
       try {
-        // 3. UPDATED API CALL: Sends the zoom parameter instead of rows/cols
-        const response = await axiosInstance.get<ClusterAverageDTO[]>("/sensors/area/cluster", {
+        const response = await axiosInstance.get<ClusterMaxDTO[]>("/sensors/area/cluster", {
           params: {
             minLat: mapState.minLat,
             maxLat: mapState.maxLat,
             minLon: mapState.minLon,
             maxLon: mapState.maxLon,
-            zoom: mapState.zoom, // Sends the dynamic zoom level to backend
+            zoom: mapState.zoom,
           },
         });
         setClusters(response.data);
@@ -117,7 +119,7 @@ export default function AeroMap() {
         center={[16.0, 106.0]} 
         zoom={6}
         style={{ height: "100%", width: "100%", zIndex: 0 }}
-        maxBounds={[[8.0, 102.0], [24.0, 110.0]]}
+        maxBounds={[[2.0, 102.0], [36.5, 110.0]]}
         minZoom={5}
       >
         <TileLayer
@@ -125,43 +127,86 @@ export default function AeroMap() {
           attribution='&copy; <a href="https://carto.com/">carto.com</a>'
         />
 
-        {/* Pass down the state setter */}
         <MapViewportTracker onMapChange={setMapState} />
 
         {clusters.map((cluster, index) => {
-          const status = determineStatus(cluster.avgPm25);
           const isCluster = cluster.sensorCount > 1;
+          
+          // Determine text color based on state
+          let statusTextColor = "text-[#009B9E]";
+          if (cluster.state === "WARNING") statusTextColor = "text-[#F28C28]";
+          if (cluster.state === "BREACHED") statusTextColor = "text-[#E63946]";
           
           return (
             <Marker
               key={`cluster-${cluster.centerLat}-${cluster.centerLon}-${index}`} 
               position={[cluster.centerLat, cluster.centerLon]}
-              icon={createCustomIcon(status, cluster.sensorCount)}
+              icon={createCustomIcon(cluster.state, cluster.sensorCount)}
             >
-              <Popup className="rounded-xl font-sans">
-                <div>
-                  <h3 className="font-bold text-[#005A8C]">
-                    {isCluster ? "Regional Cluster" : "Live Sensor Node"}
-                  </h3>
+              <Popup autoPan={false} className="rounded-xl font-sans min-w-[250px]">
+                <div className="p-1 flex flex-col h-full">
                   
-                  {isCluster && (
-                    <p className="text-xs text-gray-500 mb-2">
-                      Sensors merged: {cluster.sensorCount}
-                    </p>
-                  )}
-                  
-                  <div className={`space-y-1 ${!isCluster ? "mt-2" : ""}`}>
-                    <p className="text-sm">
-                      {isCluster ? "Avg PM2.5:" : "PM2.5 Level:"} <span className="font-bold">{cluster.avgPm25} µg/m³</span>
-                    </p>
-                    <p className="text-sm">
-                      {isCluster ? "Avg PM10:" : "PM10 Level:"} <span className="font-bold">{cluster.avgPm10} µg/m³</span>
-                    </p>
+                  {/* HEADER: Title and Dynamic Badge (Link Removed) */}
+                  <div className="mb-3 border-b border-gray-100 pb-2">
+                    <h3 className="font-bold text-[#005A8C] text-sm leading-tight">
+                      {isCluster ? "Regional Area" : "Live Sensor Node"}
+                    </h3>
+                    {isCluster && (
+                      <span className="inline-block mt-1 bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-md font-semibold tracking-wide">
+                        {cluster.sensorCount} SENSORS AGGREGATED
+                      </span>
+                    )}
                   </div>
                   
-                  <p className={`text-xs mt-2 font-bold ${status === "good" ? "text-[#009B9E]" : "text-[#F28C28]"}`}>
-                    {status === "good" ? "● Within Safe Limits" : "● Attention Required"}
-                  </p>
+                  {/* BODY: The Dual-Threshold Data Grid */}
+                  <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                    <div className="bg-gray-50 p-2 rounded-md border border-gray-100">
+                      <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">15m Avg</p>
+                      <p className="text-xs">PM2.5: <span className="font-bold text-gray-800">{cluster.maxAvgPm25}</span></p>
+                      <p className="text-xs mt-0.5">PM10: <span className="font-bold text-gray-800">{cluster.maxAvgPm10}</span></p>
+                    </div>
+                    <div className="bg-gray-50 p-2 rounded-md border border-gray-100">
+                      <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Max Peak</p>
+                      <p className="text-xs">PM2.5: <span className="font-bold text-gray-800">{cluster.maxPeakPm25}</span></p>
+                      <p className="text-xs mt-0.5">PM10: <span className="font-bold text-gray-800">{cluster.maxPeakPm10}</span></p>
+                    </div>
+                  </div>
+                  
+                  {/* FOOTER: Severity Status and Action Link */}
+                  <div className="mt-1 pt-2 border-t border-gray-100 flex flex-col gap-2.5">
+                    <div className={`text-xs font-bold ${statusTextColor}`}>
+                      {cluster.state === "SAFE" && "● Within Safe Limits"}
+                      {cluster.state === "WARNING" && `● Attention Required (${cluster.breachType.replace('_', '.')})`}
+                      {cluster.state === "BREACHED" && `● Critical Breach (${cluster.breachType.replace('_', '.')})`}
+                    </div>
+
+                    {/* View Details Button (Only for single nodes, placed at bottom) */}
+                    {!isCluster && (
+                      <Link 
+                        href={`/site-details?lat=${cluster.centerLat}&lon=${cluster.centerLon}`} 
+                        // Changed 'justify-end' to 'justify-start' and added 'mt-1' for a tiny bit of breathing room
+                        className="text-[#005A8C] hover:text-[#004266] text-[11px] font-black uppercase tracking-wider transition-colors flex items-center justify-start gap-1 group w-full mt-1"
+                      >
+                        Go to site summary
+                        <svg 
+                          xmlns="http://www.w3.org/2000/svg" 
+                          width="12" 
+                          height="12" 
+                          viewBox="0 0 24 24" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          strokeWidth="3" 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round"
+                          className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"
+                        >
+                          <path d="M7 7h10v10" />
+                          <path d="M7 17 17 7" />
+                        </svg>
+                      </Link>
+                    )}
+                  </div>
+                  
                 </div>
               </Popup>
             </Marker>
