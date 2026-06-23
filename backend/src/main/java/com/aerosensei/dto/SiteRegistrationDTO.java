@@ -3,7 +3,7 @@ package com.aerosensei.dto;
 import java.math.BigDecimal;
 
 public class SiteRegistrationDTO {
-    private Long companyId;
+    private Integer companyId;
     private String siteName;
     private BigDecimal latitude;
     private BigDecimal longitude;
