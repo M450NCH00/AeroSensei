@@ -6,10 +6,14 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 // 1. Imported the Building and Cpu icons here
 import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut, Building, Cpu } from "lucide-react";
+import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut, Gavel } from "lucide-react";
 import axiosInstance from "../api/axiosInstance";
+import { useAuth } from "../context/AuthContext";
 
 export default function Sidebar() {
-  const pathname = usePathname(); 
+  const pathname = usePathname(); // This magic hook grabs the current URL path!
+  const { hasRole } = useAuth();
+  const isGov = hasRole("GOVERNMENT") || hasRole("ADMIN");
 
   // 2. Added the two new registration links
   const navLinks = [
@@ -20,6 +24,8 @@ export default function Sidebar() {
     { name: "Carbon Credit", href: "/dashboard/carbon-credit", icon: TrendingUp },
     { name: "Register Site", href: "/dashboard/register-site", icon: Building },
     { name: "Register Sensor", href: "/dashboard/register-sensor", icon: Cpu },
+    // Enforcement is a regulator-only surface.
+    ...(isGov ? [{ name: "Fines", href: "/dashboard/fines", icon: Gavel }] : []),
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
 
