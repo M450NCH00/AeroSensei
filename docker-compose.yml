@@ -207,6 +207,12 @@ services:
       # Regulators carry the 'Government' role; mirror the backend's hasAnyRole('GOVERNMENT','ADMIN').
       - AGENT_ALLOWED_ROLES=GOVERNMENT,ADMIN
       - FRONTEND_ORIGIN=http://localhost:3000
+      # --- Internal alerting (backend -> agent -> telegram) ---
+      # Shared secret the backend must send (X-Internal-Secret) to trigger /alert.
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+      # Telegram bot push endpoint + its NOTIFY_SECRET (must match below).
+      - TELEGRAM_NOTIFY_URL=http://telegram-bot:5002/notify
+      - TELEGRAM_NOTIFY_SECRET=${NOTIFY_SECRET:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
