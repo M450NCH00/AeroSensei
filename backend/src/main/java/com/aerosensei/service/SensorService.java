@@ -601,12 +601,12 @@ public class SensorService {
                 .map(auth -> auth.getAuthority().toUpperCase())
                 .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
 
-        // 1. Check if the Sensor ID is already taken
+        // Check if the Sensor ID is already taken
         if (registryRepository.existsBySensorId(dto.getSensorId())) {
             throw new RuntimeException("Sensor ID '" + dto.getSensorId() + "' is already registered.");
         }
 
-        // 2. Verify Ownership (Government skips this check)
+        // Verify Ownership (Government skips this check)
         if (!isGovernment) {
             boolean ownsSite = registryRepository.existsBySiteIdAndUserEmail(dto.getSiteId(), userEmail);
             if (!ownsSite) {
@@ -614,9 +614,19 @@ public class SensorService {
             }
         }
 
-        // 3. Fetch the Site Reference
+        // Fetch the Site Reference
         CompanySite site = companySiteRepository.findById(dto.getSiteId())
                 .orElseThrow(() -> new RuntimeException("Site ID not found."));
+
+        if (dto.getLatitude() == null) {
+            logs.info("No latitude provided, proceeding with default site latitude: {}", site.getLatitude());
+            dto.setLatitude(site.getLatitude());
+        }
+
+        if (dto.getLongitude() == null) {
+            logs.info("No longitude provided, proceeding with default site longitude: {}", site.getLongitude());
+            dto.setLongitude(site.getLongitude());
+        }
 
         // 4. Calculate Geohash automatically (Precision 9 is roughly 4.7m x 4.7m)
         String generatedGeohash = GeoHash.encodeHash(

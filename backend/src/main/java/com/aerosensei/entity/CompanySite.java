@@ -40,6 +40,7 @@ public class CompanySite {
     public void setCompany(Company company) { this.company = company; }
 
     public String getSiteName() { return siteName; }
+    public void setSiteName(String siteName) { this.siteName = siteName; }
 
     public BigDecimal getLatitude() { return latitude; }
     public void setLatitude(BigDecimal latitude) { this.latitude = latitude; }
