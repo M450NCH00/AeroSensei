@@ -4,6 +4,7 @@ import com.aerosensei.dto.FineResponse;
 import com.aerosensei.dto.ImposeFineRequest;
 import com.aerosensei.dto.PmAlertResponse;
 import com.aerosensei.entity.Company;
+import com.aerosensei.entity.CompanySite;
 import com.aerosensei.entity.Fine;
 import com.aerosensei.entity.PmAlert;
 import com.aerosensei.entity.SensorRegistry;
@@ -79,7 +80,8 @@ public class AlertService {
         }
 
         SensorRegistry sensor = sensorRepository.findBySensorId(alert.getSensorId()).orElse(null);
-        Company company = sensor != null ? sensor.getCompany() : null;
+        CompanySite site = sensor != null ? sensor.getSite() : null;
+        Company company = site != null ? site.getCompany() : null;
 
         Fine fine = new Fine();
         fine.setAlertId(alert.getId());
@@ -111,11 +113,14 @@ public class AlertService {
                 ? Optional.empty()
                 : sensorRepository.findBySensorId(a.getSensorId());
         sensor.ifPresent(s -> {
-            r.setLocationName(s.getLocationName());
-            Company c = s.getCompany();
-            if (c != null) {
-                r.setCompanyId(c.getId());
-                r.setCompanyName(c.getCompanyName());
+            CompanySite site = s.getSite();
+            if (site != null) {
+                r.setLocationName(site.getSiteName());
+                Company c = site.getCompany();
+                if (c != null) {
+                    r.setCompanyId(c.getId());
+                    r.setCompanyName(c.getCompanyName());
+                }
             }
         });
         return r;
@@ -134,9 +139,12 @@ public class AlertService {
         r.setIssuedAt(f.getIssuedAt());
         if (f.getSensorId() != null) {
             sensorRepository.findBySensorId(f.getSensorId()).ifPresent(s -> {
-                r.setLocationName(s.getLocationName());
-                if (r.getCompanyName() == null && s.getCompany() != null) {
-                    r.setCompanyName(s.getCompany().getCompanyName());
+                CompanySite site = s.getSite();
+                if (site != null) {
+                    r.setLocationName(site.getSiteName());
+                    if (r.getCompanyName() == null && site.getCompany() != null) {
+                        r.setCompanyName(site.getCompany().getCompanyName());
+                    }
                 }
             });
         }

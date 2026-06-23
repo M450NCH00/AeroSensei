@@ -14,8 +14,23 @@ export async function GET() {
   }
 
   try {
-    const decodedToken = jwtDecode(tokenCookie.value);
-    return NextResponse.json(decodedToken);
+    // The backend JWT carries the email in `sub` and roles in `roles` (array).
+    // Normalize to the { email, role, permissions } shape the app's User type
+    // and useAuth expect, tolerating either claim name for forward/back compat.
+    const decodedToken = jwtDecode<{
+      sub?: string;
+      email?: string;
+      roles?: string | string[];
+      role?: string | string[];
+      permissions?: string[];
+    }>(tokenCookie.value);
+
+    return NextResponse.json({
+      ...decodedToken,
+      email: decodedToken.email ?? decodedToken.sub,
+      role: decodedToken.role ?? decodedToken.roles,
+      permissions: decodedToken.permissions ?? [],
+    });
   } catch (error) {
     return NextResponse.json({ error: "Failed to decode token" }, { status: 400 });
   }
