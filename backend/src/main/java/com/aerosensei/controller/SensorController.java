@@ -89,6 +89,15 @@ public class SensorController {
         return ResponseEntity.ok(data);
     }
 
+    // URL: GET http://localhost:8081/api/sensors/site/1/list
+    @GetMapping("/site/{siteId}/list")
+    public ResponseEntity<List<SensorSimpleDTO>> getAllSensorsOfSpecificSite(
+            @PathVariable Integer siteId) {
+
+        List<SensorSimpleDTO> data = sensorService.getAllSensorsOfSpecificSite(siteId);
+        return ResponseEntity.ok(data);
+    }
+
     // URL: POST http://localhost:8081/api/sensors/register
     @PostMapping("/register")
     public ResponseEntity<?> registerSensor(@RequestBody SensorRegistrationDTO dto, Authentication authentication) {

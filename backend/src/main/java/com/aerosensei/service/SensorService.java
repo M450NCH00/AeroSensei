@@ -592,6 +592,50 @@ public class SensorService {
      }
 
     // ==========================================
+// PRIVATE HELPER: FETCH FROM DB & UPDATE CACHE
+// ==========================================
+    private List<SensorSimpleDTO> refreshSensorsCacheForSite(Integer siteId) {
+        logs.info("Fetching fresh sensors from DB and updating cache for Site: {}", siteId);
+
+        // 1. Fetch fresh from DB
+        List<Object[]> results = registryRepository.findAllSensorsBySiteId(siteId);
+        List<SensorSimpleDTO> responseList = new ArrayList<>();
+
+        for (Object[] row : results) {
+            SensorSimpleDTO dto = new SensorSimpleDTO();
+            dto.setId((String) row[2]);
+            dto.setStatus((String) row[5]);
+            responseList.add(dto);
+        }
+
+        // 2. Overwrite Redis Cache (15 min TTL)
+        String redisKey = "sensors:site:" + siteId;
+        redisTemplate.opsForValue().set(redisKey, responseList, 15, TimeUnit.MINUTES);
+
+        return responseList;
+    }
+
+    // ==========================================
+    // GET ALL SENSORS DETAILS FOR A SITE
+    // ==========================================
+    @SuppressWarnings("unchecked")
+    public List<SensorSimpleDTO> getAllSensorsOfSpecificSite(Integer siteId) {
+        String redisKey = "sensors:site:" + siteId;
+
+        // 1. Check Redis first
+        List<SensorSimpleDTO> cachedData = (List<SensorSimpleDTO>) redisTemplate.opsForValue().get(redisKey);
+        if (cachedData != null) {
+            logs.info("REDIS HIT: Returning cached sensors for Site: {}", siteId);
+            return cachedData;
+        }
+
+        logs.info("REDIS MISS: Cache empty. Delegating to DB fetch for Site: {}", siteId);
+
+        // 2. If miss, fetch from DB and cache it using the helper
+        return refreshSensorsCacheForSite(siteId);
+    }
+
+    // ==========================================
     // REGISTER A NEW SENSOR
     // ==========================================
     @Transactional
@@ -628,14 +672,14 @@ public class SensorService {
             dto.setLongitude(site.getLongitude());
         }
 
-        // 4. Calculate Geohash automatically (Precision 9 is roughly 4.7m x 4.7m)
+        // Calculate Geohash automatically (Precision 9 is roughly 4.7m x 4.7m)
         String generatedGeohash = GeoHash.encodeHash(
                 dto.getLatitude().doubleValue(),
                 dto.getLongitude().doubleValue(),
                 9
         );
 
-        // 5. Build and Save the Entity
+        // Build and Save the Entity
         SensorRegistry newSensor = new SensorRegistry();
         newSensor.setSensorId(dto.getSensorId());
         newSensor.setSite(site);
@@ -646,7 +690,12 @@ public class SensorService {
         newSensor.setInstallationDate(java.time.LocalDate.now());
 
         logs.info("Registering new sensor: {} at site: {} with Geohash: {}", dto.getSensorId(), dto.getSiteId(), generatedGeohash);
-        return registryRepository.save(newSensor);
+        SensorRegistry savedSensor = registryRepository.save(newSensor);
+
+        // Refresh the list cache for this specific site
+        refreshSensorsCacheForSite(dto.getSiteId());
+
+        return savedSensor;
     }
 
     // ==========================================
@@ -659,10 +708,11 @@ public class SensorService {
                 .map(auth -> auth.getAuthority().toUpperCase())
                 .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
 
-        // 1. Check if sensor exists
-        if (!registryRepository.existsBySensorId(sensorId)) {
-            throw new RuntimeException("Sensor ID '" + sensorId + "' does not exist.");
-        }
+        // 1. Fetch the sensor first (we need to know which site it belongs to before we delete it)
+        SensorRegistry sensorToDelete = registryRepository.findBySensorId(sensorId) // *See note below*
+                .orElseThrow(() -> new RuntimeException("Sensor ID '" + sensorId + "' does not exist."));
+
+        Integer siteId = sensorToDelete.getSite().getId().intValue();
 
         // 2. Verify Ownership (Government skips this check)
         if (!isGovernment) {
@@ -674,6 +724,9 @@ public class SensorService {
 
         logs.info("Deleting sensor: {} | User: {}", sensorId, userEmail);
         registryRepository.deleteBySensorId(sensorId);
+
+        // Refresh the list cache so the deleted sensor is no longer in Redis
+        refreshSensorsCacheForSite(siteId);
     }
 
     // ==========================================
