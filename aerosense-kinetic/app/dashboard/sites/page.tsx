@@ -10,7 +10,7 @@ export default function SitesPage() {
         <div className="absolute top-[-50%] right-[-10%] w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-black text-white tracking-tight">Sensor Sites</h1>
+            <h1 className="text-3xl font-black text-white tracking-tight">Company Sites</h1>
             <p className="text-[#009B9E] font-bold text-sm tracking-widest uppercase mt-1">
               Global Telemetry Matrix
             </p>
