@@ -62,6 +62,17 @@ JWT_SECRET = os.getenv("JWT_SECRET", "your-hackathon-super-secret-key-xyz123")
 # Roles permitted to use the agent. Admin-only for now.
 ALLOWED_ROLES = {r.upper() for r in _split(os.getenv("AGENT_ALLOWED_ROLES", "ADMIN"))}
 
+# --- Internal alerting (backend -> agent -> telegram) ---
+# Shared secret the backend must present (X-Internal-Secret header) to trigger an
+# alert. Empty = the endpoint is disabled (fail closed) so it can't be abused.
+INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "").strip()
+
+# Telegram bot's internal push endpoint and its shared secret (NOTIFY_SECRET on
+# the bot side). The agent POSTs the composed alert here to broadcast it.
+TELEGRAM_NOTIFY_URL = os.getenv("TELEGRAM_NOTIFY_URL", "http://telegram-bot:5002/notify").rstrip("/")
+TELEGRAM_NOTIFY_SECRET = os.getenv("TELEGRAM_NOTIFY_SECRET", "").strip()
+TELEGRAM_NOTIFY_TIMEOUT = float(os.getenv("TELEGRAM_NOTIFY_TIMEOUT", "15"))
+
 
 def get_provider():
     """Instantiate the configured LLM provider (single source of truth)."""

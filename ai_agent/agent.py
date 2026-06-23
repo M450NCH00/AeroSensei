@@ -31,6 +31,63 @@ def _build_messages(question: str, history: list[dict]) -> list[dict]:
     return messages
 
 
+def _fallback_alert(alert: dict) -> str:
+    """Deterministic advisory used when the LLM is unavailable or errors out.
+
+    `alert` mirrors a pm_alerts row (sensor_id, pm_type, measured_value,
+    threshold_value, alert_level, triggered_at, note).
+    """
+    sensor = alert.get("sensor_id") or "an unknown sensor"
+    pm_type = (alert.get("pm_type") or "PM").upper()
+    measured = alert.get("measured_value")
+    threshold = alert.get("threshold_value")
+    level = (alert.get("alert_level") or "warning").upper()
+    measured_str = f"{measured} µg/m³" if measured is not None else "above the limit"
+    threshold_str = f" (threshold {threshold} µg/m³)" if threshold is not None else ""
+    icon = "🔴" if level == "CRITICAL" else "⚠️"
+    note = f" Note: {alert['note']}." if alert.get("note") else ""
+    return (
+        f"{icon} {level} air-quality alert — sensor {sensor}: {pm_type} reached "
+        f"{measured_str}{threshold_str}. Sensitive groups should limit outdoor exposure; "
+        f"regulators should review the affected site.{note}"
+    )
+
+
+def compose_alert(alert: dict) -> str:
+    """Turn a pm_alerts row from the backend into a short Telegram advisory.
+
+    Tries the configured LLM for natural phrasing and falls back to a
+    deterministic message if anything goes wrong — the alert must still go out.
+
+    Expected keys (pm_alerts schema): id, sensor_id, pm_type, measured_value,
+    threshold_value, alert_level, triggered_at, resolved_at, note. All optional
+    except measured_value (validated by the caller).
+    """
+    try:
+        provider = config.get_provider()
+        facts = ", ".join(f"{k}={v}" for k, v in alert.items() if v is not None)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are the AeroSense air-quality alerting assistant. Write a single, "
+                    "concise Telegram alert (max 3 short sentences, plain text, no markdown) "
+                    "warning that a sensor's PM level has breached its threshold. State the "
+                    "sensor, the PM type, the measured value vs. the threshold, and the alert "
+                    "level (warning/critical), then give a brief recommended action. "
+                    "Do not invent data beyond what is provided."
+                ),
+            },
+            {"role": "user", "content": f"pm_alerts record: {facts}"},
+        ]
+        text = (provider.chat(messages, tools=[]).text or "").strip()
+        if text:
+            return text
+    except Exception:
+        log.exception("LLM alert composition failed; using deterministic fallback")
+    return _fallback_alert(alert)
+
+
 def run(question: str, history: list[dict], token: str) -> str:
     """Answer `question` for an authorized caller, using tools as needed.
 
