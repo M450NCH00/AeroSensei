@@ -1,6 +1,8 @@
 package com.aerosensei.dto;
 
-public class CompanySimpleDTO {
+import java.io.Serializable;
+
+public class CompanySimpleDTO implements Serializable {
     private Integer id;
     private String companyName;
 

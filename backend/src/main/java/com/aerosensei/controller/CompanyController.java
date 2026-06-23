@@ -30,9 +30,8 @@ public class CompanyController {
     // URL: GET http://localhost:8081/api/companies/1/sites
     @GetMapping("/{companyId}/sites")
     public ResponseEntity<List<SiteSimpleDTO>> getSitesByCompanyId(
-            @PathVariable Integer companyId,
-            Authentication authentication) {
-        List<SiteSimpleDTO> sites = companyService.getAllSites(companyId, authentication);
+            @PathVariable Integer companyId) {
+        List<SiteSimpleDTO> sites = companyService.getSpecificCompanySites(companyId);
         return ResponseEntity.ok(sites);
     }
 

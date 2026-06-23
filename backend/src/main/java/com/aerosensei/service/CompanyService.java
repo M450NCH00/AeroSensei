@@ -3,18 +3,18 @@ package com.aerosensei.service;
 import com.aerosensei.dto.SiteRegistrationDTO;
 import com.aerosensei.entity.Company;
 import com.aerosensei.entity.CompanySite;
-import com.aerosensei.entity.SensorRegistry;
 import com.aerosensei.repository.CompanyRepository;
 import com.aerosensei.repository.CompanySiteRepository;
-import com.github.davidmoten.geo.GeoHash;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import com.aerosensei.dto.CompanySimpleDTO;
@@ -31,48 +31,77 @@ public class CompanyService {
     @Autowired
     private CompanySiteRepository siteRepository;
 
+    // Inject RedisTemplate
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
     // ==========================================
     // GET ALL COMPANIES
     // ==========================================
+    @SuppressWarnings("unchecked")
     public List<CompanySimpleDTO> getAllCompanies(Authentication authentication) {
         String userEmail = authentication.getName();
         boolean isGovernment = authentication.getAuthorities().stream()
                 .map(auth -> auth.getAuthority().toUpperCase())
                 .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
 
-        logs.info("Fetching all companies owned for User: {} | isGov: {}", userEmail, isGovernment);
+        // Determine the Redis key based on user role
+        String redisKey = isGovernment ? "companies:all" : "companies:user:" + userEmail;
 
+        // 1. Check Redis first
+        List<CompanySimpleDTO> cachedData = (List<CompanySimpleDTO>) redisTemplate.opsForValue().get(redisKey);
+        if (cachedData != null) {
+            logs.info("REDIS HIT: Returning cached companies data for key: {}", redisKey);
+            return cachedData;
+        }
+
+        logs.info("REDIS MISS: Fetching all companies from DB for User: {} | isGov: {}", userEmail, isGovernment);
+
+        // 2. Fetch from DB
+        List<CompanySimpleDTO> companies;
         if (isGovernment) {
-            return companyRepository.findAll().stream()
+            companies = companyRepository.findAll().stream()
                     .map(company -> new CompanySimpleDTO(Math.toIntExact(company.getId()), company.getCompanyName()))
                     .collect(Collectors.toList());
         } else {
-            return companyRepository.findByUser_Email(userEmail).stream()
+            companies = companyRepository.findByUser_Email(userEmail).stream()
                     .map(company -> new CompanySimpleDTO(Math.toIntExact(company.getId()), company.getCompanyName()))
                     .collect(Collectors.toList());
         }
+
+        // 3. Save to Redis with 15 mins TTL
+        logs.info("Caching companies list in Redis for 15 minutes for key: {}", redisKey);
+        redisTemplate.opsForValue().set(redisKey, companies, 15, TimeUnit.MINUTES);
+
+        return companies;
     }
 
     // ==========================================
     // GET ALL SITES FOR A SPECIFIC COMPANY
     // ==========================================
-    public List<SiteSimpleDTO> getAllSites(Integer companyId, Authentication authentication) {
-        String userEmail = authentication.getName();
-        boolean isGovernment = authentication.getAuthorities().stream()
-                .map(auth -> auth.getAuthority().toUpperCase())
-                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+    @SuppressWarnings("unchecked")
+    public List<SiteSimpleDTO> getSpecificCompanySites(Integer companyId) {
+        String redisKey = "sites:company:" + companyId;
 
-        logs.info("Fetching all sites for Company: {} | User: {} | isGov: {}", companyId, userEmail, isGovernment);
-
-        if (isGovernment) {
-            return siteRepository.findAll().stream()
-                    .map(site -> new SiteSimpleDTO(Math.toIntExact(site.getId()), site.getSiteName()))
-                    .collect(Collectors.toList());
-        } else {
-            return siteRepository.findByCompanyId(companyId).stream()
-                    .map(site -> new SiteSimpleDTO(Math.toIntExact(site.getId()), site.getSiteName()))
-                    .collect(Collectors.toList());
+        // 1. Check Redis first
+        List<SiteSimpleDTO> cachedData = (List<SiteSimpleDTO>) redisTemplate.opsForValue().get(redisKey);
+        if (cachedData != null) {
+            logs.info("REDIS HIT: Returning cached sites for Company: {}", companyId);
+            return cachedData;
         }
+
+        logs.info("REDIS MISS: Fetching all sites from DB for Company: {}", companyId);
+
+        // 2. Fetch from DB
+        List<SiteSimpleDTO> sites = siteRepository.findByCompanyId(companyId).stream()
+                .map(site -> new SiteSimpleDTO(Math.toIntExact(site.getId()), site.getSiteName(), site.getLatitude(), site.getLongitude()))
+                .collect(Collectors.toList());
+
+        // 3. Save to Redis with 15 mins TTL
+        logs.info("Caching sites list in Redis for 15 minutes for Company: {}", companyId);
+        redisTemplate.opsForValue().set(redisKey, sites, 15, TimeUnit.MINUTES);
+
+        return sites;
     }
 
     // ==========================================
@@ -102,7 +131,7 @@ public class CompanyService {
         Company company = companyRepository.findById(dto.getCompanyId().longValue())
                 .orElseThrow(() -> new RuntimeException("Company ID not found."));
 
-        // Build and Save the Entity
+        // Build and Save the Entity to DB
         CompanySite newSite = new CompanySite();
         newSite.setCompany(company);
         newSite.setSiteName(dto.getSiteName());
@@ -110,6 +139,22 @@ public class CompanyService {
         newSite.setLongitude(dto.getLongitude());
 
         logs.info("Registering new site: {} at company: {}", dto.getSiteName(), dto.getCompanyId());
-        return siteRepository.save(newSite);
+        CompanySite savedSite = siteRepository.save(newSite);
+
+        // ==========================================
+        // UPDATE REDIS CACHE POST-REGISTRATION
+        // ==========================================
+        logs.info("Updating Redis cache with fresh DB data for Company: {}", dto.getCompanyId());
+
+        // Fetch fresh list from DB
+        List<SiteSimpleDTO> updatedSites = siteRepository.findByCompanyId(dto.getCompanyId()).stream()
+                .map(site -> new SiteSimpleDTO(Math.toIntExact(site.getId()), site.getSiteName(), site.getLatitude(), site.getLongitude()))
+                .collect(Collectors.toList());
+
+        // Overwrite Redis cache
+        String redisKey = "sites:company:" + dto.getCompanyId();
+        redisTemplate.opsForValue().set(redisKey, updatedSites, 15, TimeUnit.MINUTES);
+
+        return savedSite;
     }
 }
