@@ -4,11 +4,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut, Gavel } from "lucide-react";
 import axiosInstance from "../api/axiosInstance";
+import { useAuth } from "../context/AuthContext";
 
 export default function Sidebar() {
   const pathname = usePathname(); // This magic hook grabs the current URL path!
+  const { hasRole } = useAuth();
+  const isGov = hasRole("GOVERNMENT") || hasRole("ADMIN");
 
   const navLinks = [
     { name: "Overview Map", href: "/dashboard", icon: LayoutDashboard },
@@ -16,6 +19,8 @@ export default function Sidebar() {
     { name: "Sensor Sites", href: "/dashboard/sites", icon: Map },
     { name: "Carbon Market", href: "/dashboard/carbon", icon: Leaf },
     { name: "Carbon Credit", href: "/dashboard/carbon-credit", icon: TrendingUp },
+    // Enforcement is a regulator-only surface.
+    ...(isGov ? [{ name: "Fines", href: "/dashboard/fines", icon: Gavel }] : []),
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
 

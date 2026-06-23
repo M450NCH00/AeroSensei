@@ -112,6 +112,7 @@ services:
       - ./postgresql/query/emission_reports_initialization.sql:/docker-entrypoint-initdb.d/10_emission_reports_initialization.sql
       - ./postgresql/query/compliance_cycles_initialization.sql:/docker-entrypoint-initdb.d/11_compliance_cycles_initialization.sql
       - ./postgresql/query/carbon_allocations_seed.sql:/docker-entrypoint-initdb.d/12_carbon_allocations_seed.sql
+      - ./postgresql/query/fines_initialization.sql:/docker-entrypoint-initdb.d/13_fines_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
