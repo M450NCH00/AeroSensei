@@ -4,6 +4,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+// 1. Imported the Building and Cpu icons here
+import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut, Building, Cpu } from "lucide-react";
 import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut, Gavel } from "lucide-react";
 import axiosInstance from "../api/axiosInstance";
 import { useAuth } from "../context/AuthContext";
@@ -13,29 +15,28 @@ export default function Sidebar() {
   const { hasRole } = useAuth();
   const isGov = hasRole("GOVERNMENT") || hasRole("ADMIN");
 
+  // 2. Added the two new registration links
   const navLinks = [
     { name: "Overview Map", href: "/dashboard", icon: LayoutDashboard },
     { name: "AI Assistant", href: "/dashboard/aiassistant", icon: Bot },
-    { name: "Sensor Sites", href: "/dashboard/sites", icon: Map },
+    { name: "Company Sites", href: "/dashboard/sites", icon: Map },
     { name: "Carbon Market", href: "/dashboard/carbon", icon: Leaf },
     { name: "Carbon Credit", href: "/dashboard/carbon-credit", icon: TrendingUp },
+    { name: "Register Site", href: "/dashboard/register-site", icon: Building },
+    { name: "Register Sensor", href: "/dashboard/register-sensor", icon: Cpu },
     // Enforcement is a regulator-only surface.
     ...(isGov ? [{ name: "Fines", href: "/dashboard/fines", icon: Gavel }] : []),
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
 
   const handleLogout = async (e: React.MouseEvent) => {
-    e.preventDefault(); // Locks the click event so Axios can finish its job
+    e.preventDefault(); 
 
     try {
-      // Tell the backend to destroy the cookies
       await axiosInstance.post("/auth/logout");
-      
-      // Forcing a hard reload wipes the entire React memory state cleanly.
       window.location.href = "/login";
     } catch (error) {
       console.error("Failed to logout cleanly", error);
-      // Force them to login anyway if something gets stuck
       window.location.href = "/login";
     }
   };

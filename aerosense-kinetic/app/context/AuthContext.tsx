@@ -27,10 +27,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const response = await axiosInstance.get<User>("/auth/me");
-        setUser(response.data);
+        // CHANGED: Instead of calling axiosInstance.get("/auth/me")
+        // We use standard fetch to call our local Next.js middleman route
+        const response = await fetch("/api/session");
+        
+        if (!response.ok) throw new Error("No session");
+        
+        const decodedData = await response.json();
+        
+        // This will now contain your full JWT payload, including permissions!
+        console.log("Decoded Token Data:", decodedData);
+        
+        setUser(decodedData);
       } catch (error) {
-        // Just clear the user, don't worry about redirecting here
         setUser(null); 
       } finally {
         setIsLoading(false);

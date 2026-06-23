@@ -1,4 +1,4 @@
-CREATE TABLE companies
+CREATE TABLE IF NOT EXISTS companies
 (
     id             SERIAL PRIMARY KEY,
     user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -7,7 +7,7 @@ CREATE TABLE companies
     sector_id      INTEGER REFERENCES sectors(id) ON DELETE SET NULL,
     created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+    );
 
 -- Seed Vietnam companies linked to seeded users with their respective sectors.
 -- A handful of well-known companies are intentionally seeded with sector_id = NULL

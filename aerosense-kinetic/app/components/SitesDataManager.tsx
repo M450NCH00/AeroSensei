@@ -1,108 +1,148 @@
 // src/components/SitesDataManager.tsx
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import axiosInstance from "@/app/api/axiosInstance";
 import SitesTable, { SiteData, SortKey } from "./SitesTable";
 
-interface SensorAverageDTO {
+interface SiteSensor15MinDTO {
+  companyName: string;
+  siteName: string;
   sensorId: string;
-  locationName: string;
-  pm25: number;
-  pm10: number;
+  latitude: number;
+  longitude: number;
+  status: string; 
+  avgPm25: number;
+  avgPm10: number;
+  maxPm25: number;
+  maxPm10: number;
+  breachType: "NONE" | "PM2_5" | "PM10" | "MULTIPLE";
+  state: "SAFE" | "WARNING" | "BREACHED";
   lastCalculated: string;
 }
+
+const getStatusScore = (site: SiteData) => {
+  if (site.state === "BREACHED") return 5;
+  if (site.state === "WARNING") return 4;
+  if (site.status === "active") return 3;
+  if (site.status === "maintenance") return 2;
+  return 1; 
+};
 
 export default function SitesDataManager() {
   const [rawSites, setRawSites] = useState<SiteData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Interactive States
   const [searchTerm, setSearchTerm] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc"); // Default alphabetical
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
-  useEffect(() => {
-    const fetchAllSites = async () => {
-      try {
-        const response = await axiosInstance.get<SensorAverageDTO[]>("/sensors/area/average", {
-          params: { minLat: 8.0, maxLat: 24.0, minLon: 102.0, maxLon: 110.0 },
-        });
+  // NEW: Sync tracking states
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [timeAgo, setTimeAgo] = useState<string>("Syncing...");
 
-        // Map backend DTO to our UI table format
-        const formattedData: SiteData[] = response.data.map((sensor) => {
-          let status: SiteData["status"] = "offline";
-          if (sensor.pm25 != null) {
-            if (sensor.pm25 > 35) status = "danger";
-            else if (sensor.pm25 > 15) status = "warning";
-            else status = "good";
-          }
+  // NEW: Wrapped in useCallback so it can be triggered manually
+  const fetchAllSites = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await axiosInstance.get<SiteSensor15MinDTO[]>("/sensors/site/all-readings-15m");
 
-          return {
-            id: sensor.sensorId,
-            name: sensor.locationName || `Node ${sensor.sensorId}`,
-            pm25: sensor.pm25,
-            pm10: sensor.pm10,
-            lastUpdated: new Date(sensor.lastCalculated).toLocaleTimeString([], { 
-              hour: '2-digit', minute: '2-digit' 
-            }),
-            status,
-          };
-        });
+      const formattedData: SiteData[] = response.data.map((sensor) => {
+        const rawStatus = (sensor.status || "offline").toLowerCase();
+        let uiStatus: SiteData["status"] = "offline";
+        if (rawStatus.includes("active")) uiStatus = "active";
+        if (rawStatus.includes("maintenance")) uiStatus = "maintenance";
 
-        setRawSites(formattedData);
-      } catch (error) {
-        console.error("Failed to fetch sites telemetry:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+        return {
+          id: sensor.sensorId,
+          name: sensor.siteName || `Node ${sensor.sensorId}`,
+          company: sensor.companyName,
+          avgPm25: sensor.avgPm25 != null ? sensor.avgPm25 : null,
+          avgPm10: sensor.avgPm10 != null ? sensor.avgPm10 : null,
+          maxPm25: sensor.maxPm25 != null ? sensor.maxPm25 : null,
+          maxPm10: sensor.maxPm10 != null ? sensor.maxPm10 : null,
+          breachType: sensor.breachType,
+          state: sensor.state, 
+          lastUpdated: sensor.lastCalculated ? new Date(sensor.lastCalculated).toLocaleTimeString([], { 
+            hour: '2-digit', minute: '2-digit' 
+          }) : "—",
+          status: uiStatus,
+        };
+      });
 
-    fetchAllSites();
+      setRawSites(formattedData);
+      setLastSync(new Date()); // Log the exact moment of successful fetch
+    } catch (error) {
+      console.error("Failed to fetch sites telemetry:", error);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  // useMemo ensures we only recalculate sorting/filtering when the user types or clicks
+  // 1. Initial Load Only (No auto-refresh interval)
+  useEffect(() => {
+    fetchAllSites();
+  }, [fetchAllSites]);
+
+  // 2. Local Timer updater (Updates the "Just now" text every 10 seconds)
+  useEffect(() => {
+    if (!lastSync) return;
+    
+    const updateText = () => {
+      const diffInSeconds = Math.floor((new Date().getTime() - lastSync.getTime()) / 1000);
+      const diffInMinutes = Math.floor(diffInSeconds / 60);
+
+      if (diffInSeconds < 15) {
+        setTimeAgo("Just now");
+      } else if (diffInSeconds < 60) {
+        setTimeAgo(`${diffInSeconds}s ago`);
+      } else {
+        setTimeAgo(`${diffInMinutes}m ago`);
+      }
+    };
+    
+    updateText(); 
+    const textInterval = setInterval(updateText, 10000);
+    return () => clearInterval(textInterval);
+  }, [lastSync]);
+
   const processedData = useMemo(() => {
-    // 1. Filter by Search Term
     let filtered = rawSites.filter(
       (site) =>
         site.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        site.id.toLowerCase().includes(searchTerm.toLowerCase())
+        site.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (site.company && site.company.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
-    // 2. Sort the filtered results
     filtered.sort((a, b) => {
       let comparison = 0;
       
-      if (sortKey === "name") {
+      if (sortKey === "status") {
+        comparison = getStatusScore(a) - getStatusScore(b);
+      } else if (sortKey === "name") {
         comparison = a.name.localeCompare(b.name);
-      } else if (sortKey === "pm25") {
-        // Handle null values gracefully by pushing them to the bottom
-        const valA = a.pm25 ?? -1;
-        const valB = b.pm25 ?? -1;
+      } else if (sortKey === "avgPm25") {
+        const valA = a.avgPm25 ?? -1;
+        const valB = b.avgPm25 ?? -1;
         comparison = valA - valB;
-      } else if (sortKey === "pm10") {
-        const valA = a.pm10 ?? -1;
-        const valB = b.pm10 ?? -1;
+      } else if (sortKey === "avgPm10") {
+        const valA = a.avgPm10 ?? -1;
+        const valB = b.avgPm10 ?? -1;
         comparison = valA - valB;
       }
 
-      // Flip the math if descending
       return sortDirection === "asc" ? comparison : -comparison;
     });
 
     return filtered;
   }, [rawSites, searchTerm, sortKey, sortDirection]);
 
-  // Handler for clicking table headers
   const handleSortToggle = (key: SortKey) => {
     if (sortKey === key) {
-      // If clicking the same column, just flip the direction
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
     } else {
-      // If clicking a new column, sort by that column and default to ascending
       setSortKey(key);
-      setSortDirection("asc");
+      setSortDirection(key === "name" ? "asc" : "desc");
     }
   };
 
@@ -115,6 +155,9 @@ export default function SitesDataManager() {
       sortKey={sortKey}
       sortDirection={sortDirection}
       onSortToggle={handleSortToggle}
+      // Pass the new props down to the table
+      onRefresh={fetchAllSites}
+      timeAgo={timeAgo}
     />
   );
 }
