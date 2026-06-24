@@ -56,7 +56,27 @@ SKILLS: list[Skill] = [
             "list_sensors to enumerate sites.",
             "For a specific sensor, call get_sensor_average to pull PM1.0/2.5/4.0/10.",
             "Compare PM2.5 against safe limits (<12 annual, <35 24-hour μg/m³) and "
-            "call out WARNING (80-100% of limit) and CRITICAL (over limit) sites.",
+            "call out sites that are over the limit (a WARNING or, if severe, a "
+            "BREACHED-level exceedance). Readings roll up per site.",
+        ],
+    ),
+    Skill(
+        name="Breach-alert & fine enforcement review",
+        when_to_use=(
+            "The regulator asks which sites breached PM limits, which breaches are "
+            "still un-fined, who has been fined, fine amounts/status, or wants an "
+            "enforcement overview."
+        ),
+        tools=["list_alerts", "list_fines"],
+        steps=[
+            "Call list_alerts for all PM-breach alerts (site, company, pm_type, "
+            "measured vs threshold, WARNING/BREACHED level, and whether fined).",
+            "To answer about penalties, call list_fines for amounts, status "
+            "(issued/paid/cancelled), and who issued each.",
+            "Highlight BREACHED-level and still-un-fined alerts, group by company/"
+            "site, and cite the concrete measured values and fine amounts. You can "
+            "read these records but cannot create alerts or impose fines — direct "
+            "the regulator to the Fines page to take action.",
         ],
     ),
     Skill(

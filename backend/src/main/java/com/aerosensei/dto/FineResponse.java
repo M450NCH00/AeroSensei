@@ -6,8 +6,8 @@ import java.time.LocalDateTime;
 public class FineResponse {
     private Long id;
     private Long alertId;
-    private String sensorId;
-    private String locationName;
+    private Long siteId;
+    private String siteName;
     private Long companyId;
     private String companyName;
     private BigDecimal amount;
@@ -22,11 +22,11 @@ public class FineResponse {
     public Long getAlertId() { return alertId; }
     public void setAlertId(Long alertId) { this.alertId = alertId; }
 
-    public String getSensorId() { return sensorId; }
-    public void setSensorId(String sensorId) { this.sensorId = sensorId; }
+    public Long getSiteId() { return siteId; }
+    public void setSiteId(Long siteId) { this.siteId = siteId; }
 
-    public String getLocationName() { return locationName; }
-    public void setLocationName(String locationName) { this.locationName = locationName; }
+    public String getSiteName() { return siteName; }
+    public void setSiteName(String siteName) { this.siteName = siteName; }
 
     public Long getCompanyId() { return companyId; }
     public void setCompanyId(Long companyId) { this.companyId = companyId; }

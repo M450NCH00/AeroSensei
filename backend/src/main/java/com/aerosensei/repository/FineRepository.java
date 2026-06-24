@@ -10,4 +10,5 @@ import java.util.List;
 public interface FineRepository extends JpaRepository<Fine, Long> {
     List<Fine> findAllByOrderByIssuedAtDesc();
     List<Fine> findByAlertId(Long alertId);
+    List<Fine> findByCompanyIdOrderByIssuedAtDesc(Long companyId);
 }

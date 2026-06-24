@@ -7,8 +7,8 @@ import java.time.LocalDateTime;
  *  a fine has already been issued against it. */
 public class PmAlertResponse {
     private Long id;
-    private String sensorId;
-    private String locationName;
+    private Long siteId;
+    private String siteName;
     private Long companyId;
     private String companyName;
     private String pmType;
@@ -23,11 +23,11 @@ public class PmAlertResponse {
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
-    public String getSensorId() { return sensorId; }
-    public void setSensorId(String sensorId) { this.sensorId = sensorId; }
+    public Long getSiteId() { return siteId; }
+    public void setSiteId(Long siteId) { this.siteId = siteId; }
 
-    public String getLocationName() { return locationName; }
-    public void setLocationName(String locationName) { this.locationName = locationName; }
+    public String getSiteName() { return siteName; }
+    public void setSiteName(String siteName) { this.siteName = siteName; }
 
     public Long getCompanyId() { return companyId; }
     public void setCompanyId(Long companyId) { this.companyId = companyId; }
