@@ -3,6 +3,7 @@
 #include <SensirionUartSps30.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <time.h>
 
 // =====================================================
 // ESP32-WROOM-32D + SPS30 UART + WiFi
@@ -20,8 +21,20 @@
 // =====================================================
 #define WIFI_SSID "CW_LOVE_ZM"
 #define WIFI_PASSWORD "123456789"
-#define WIFI_TIMEOUT_MS 10000                            // 10 seconds
-#define POST_ENDPOINT "http://192.168.88.8:3000/api/air" // optional
+#define WIFI_TIMEOUT_MS 10000 // 10 seconds
+
+// Spring Boot ingest endpoint. Path must be /api/sensors/ingest.
+// NOTE: backend's application.properties sets server.port=8081, while the
+// Python traffic simulator defaults to 8080 (likely a proxy/Docker mapping).
+// Set this to wherever the running backend is actually reachable.
+#define POST_ENDPOINT "http://192.168.88.8:8081/api/sensors/ingest"
+
+// Must match an existing id in the sensor_registry table, otherwise the
+// backend cannot attribute the reading to a sensor/site.
+#define SENSOR_ID "REPLACE-WITH-SENSOR-UUID"
+
+// NTP for the ISO-8601 UTC timestamp the ingest endpoint expects
+#define NTP_SERVER "pool.ntp.org"
 
 // =====================================================
 // SPS30 Configuration
@@ -123,7 +136,7 @@ bool connectWiFi()
     HTTPClient http;
     http.begin(POST_ENDPOINT);
     http.setTimeout(5000);
-    int httpCode = http.GET(); // will likely 404, that's fine — we just want TCP to succeed
+    int httpCode = http.GET(); // GET on the ingest path will likely 405/404, that's fine — we just want TCP to succeed
 
     if (httpCode > 0)
     {
@@ -142,7 +155,21 @@ bool connectWiFi()
     return true;
 }
 
-void postReadings(float pm1p0, float pm2p5, float pm4p0, float pm10p0, float size)
+// Returns the current time as an ISO-8601 UTC string (e.g. 2026-06-24T12:34:56Z).
+// Returns "" if NTP has not synced yet.
+String getIsoTimestamp()
+{
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo))
+    {
+        return String("");
+    }
+    char buf[25];
+    strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+    return String(buf);
+}
+
+void postReadings(float pm1p0, float pm2p5, float pm4p0, float pm10p0, float nc0p5)
 {
     if (WiFi.status() != WL_CONNECTED)
     {
@@ -154,12 +181,15 @@ void postReadings(float pm1p0, float pm2p5, float pm4p0, float pm10p0, float siz
     http.begin(POST_ENDPOINT);
     http.addHeader("Content-Type", "application/json");
 
+    // Matches the /api/sensors/ingest payload contract.
     String payload = "{";
-    payload += "\"pm1p0\":" + String(pm1p0, 2) + ",";
-    payload += "\"pm2p5\":" + String(pm2p5, 2) + ",";
-    payload += "\"pm4p0\":" + String(pm4p0, 2) + ",";
-    payload += "\"pm10p0\":" + String(pm10p0, 2) + ",";
-    payload += "\"size\":" + String(size, 2);
+    payload += "\"sensorId\":\"" + String(SENSOR_ID) + "\",";
+    payload += "\"pm1_0\":" + String(pm1p0, 2) + ",";
+    payload += "\"pm2_5\":" + String(pm2p5, 2) + ",";
+    payload += "\"pm4_0\":" + String(pm4p0, 2) + ",";
+    payload += "\"pm10\":" + String(pm10p0, 2) + ",";
+    payload += "\"nc0_5\":" + String(nc0p5, 2) + ",";
+    payload += "\"timestamp\":\"" + getIsoTimestamp() + "\"";
     payload += "}";
 
     int httpCode = http.POST(payload);
@@ -188,6 +218,9 @@ void setup()
 
     // --- WiFi ---
     connectWiFi(); // non-fatal: SPS30 still runs if WiFi fails
+
+    // --- Time (UTC) for ISO-8601 timestamps in the ingest payload ---
+    configTime(0, 0, NTP_SERVER); // 0 offset, 0 DST => UTC
 
     // --- SPS30 ---
     Serial.println();
@@ -282,5 +315,5 @@ void loop()
     Serial.println(" um");
 
     // Post to server (remove or comment out if not needed)
-    postReadings(mc1p0, mc2p5, mc4p0, mc10p0, typicalParticleSize);
+    postReadings(mc1p0, mc2p5, mc4p0, mc10p0, nc0p5);
 }
