@@ -3,9 +3,9 @@ package com.aerosensei.dto;
 public class SensorDataWithLocationDTO {
     // Reusing your exact existing DTOs!
     private SensorInfoDTO info;
-    private SensorAverageDTO liveData;
+    private SensorReadingsDTO liveData;
 
-    public SensorDataWithLocationDTO(SensorInfoDTO info, SensorAverageDTO liveData) {
+    public SensorDataWithLocationDTO(SensorInfoDTO info, SensorReadingsDTO liveData) {
         this.info = info;
         this.liveData = liveData;
     }
@@ -13,6 +13,6 @@ public class SensorDataWithLocationDTO {
     public SensorInfoDTO getInfo() { return info; }
     public void setInfo(SensorInfoDTO info) { this.info = info; }
 
-    public SensorAverageDTO getLiveData() { return liveData; }
-    public void setLiveData(SensorAverageDTO liveData) { this.liveData = liveData; }
+    public SensorReadingsDTO getLiveData() { return liveData; }
+    public void setLiveData(SensorReadingsDTO liveData) { this.liveData = liveData; }
 }

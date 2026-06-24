@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import com.aerosensei.service.AuthService;
 import com.aerosensei.entity.AuthResponse;
 import com.aerosensei.entity.LoginRequest;
+import com.aerosensei.entity.ChangePasswordRequest;
 import com.aerosensei.repository.UserRepository;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import java.util.Map;
@@ -94,6 +95,19 @@ public class AuthController {
                     .body("Tokens refreshed smoothly");
         } catch (Exception e) {
             return ResponseEntity.status(403).body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<?> changePassword(
+            @AuthenticationPrincipal String email,
+            @RequestBody ChangePasswordRequest request) {
+        if (email == null) return ResponseEntity.status(401).body("Not authenticated");
+        try {
+            authService.changePassword(email, request.getCurrentPassword(), request.getNewPassword());
+            return ResponseEntity.ok("Password changed successfully");
+        } catch (Exception e) {
+            return ResponseEntity.status(400).body(e.getMessage());
         }
     }
 

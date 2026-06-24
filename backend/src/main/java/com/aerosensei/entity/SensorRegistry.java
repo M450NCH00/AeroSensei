@@ -19,19 +19,23 @@ public class SensorRegistry {
     @Column(name = "id", insertable = false, updatable = false)
     private UUID id;
 
-    // This creates the Foreign Key link to the Company entity!
+    // ==========================================
+    // NEW: Link to the CompanySite table (site_id)
+    // This replaces the old company_id and location_name!
+    // ==========================================
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id")
-    private Company company;
+    @JoinColumn(name = "site_id")
+    private CompanySite site;
 
-    @Column(name = "location_name", length = 100, nullable = false)
-    private String locationName;
-
+    // BRINGING THESE BACK FOR EXACT SENSOR PLACEMENT
     @Column(nullable = false, precision = 11, scale = 8)
     private BigDecimal latitude;
 
     @Column(nullable = false, precision = 11, scale = 8)
     private BigDecimal longitude;
+
+    @Column(name = "geohash", length = 12)
+    private String geohash;
 
     @Column(length = 20)
     private String status;
@@ -54,17 +58,18 @@ public class SensorRegistry {
     public UUID getId() { return id; }
     // No setter for ID since PostgreSQL generates it
 
-    public Company getCompany() { return company; }
-    public void setCompany(Company company) { this.company = company; }
-
-    public String getLocationName() { return locationName; }
-    public void setLocationName(String locationName) { this.locationName = locationName; }
+    // Updated Getters and Setters for the new Site object
+    public CompanySite getSite() { return site; }
+    public void setSite(CompanySite site) { this.site = site; }
 
     public BigDecimal getLatitude() { return latitude; }
     public void setLatitude(BigDecimal latitude) { this.latitude = latitude; }
 
     public BigDecimal getLongitude() { return longitude; }
     public void setLongitude(BigDecimal longitude) { this.longitude = longitude; }
+
+    public String getGeohash() { return geohash; }
+    public void setGeohash(String geohash) { this.geohash = geohash; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

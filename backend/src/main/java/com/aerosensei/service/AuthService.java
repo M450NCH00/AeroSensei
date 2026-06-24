@@ -72,6 +72,23 @@ public class AuthService {
         throw new RuntimeException("Invalid Refresh Token");
     }
 
+    public void changePassword(String email, String currentPassword, String newPassword) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new RuntimeException("Current password is incorrect");
+        }
+
+        if (newPassword == null || newPassword.length() < 8) {
+            throw new RuntimeException("New password must be at least 8 characters");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        log.info("Password changed for user: {}", email);
+    }
+
     // Helper method to convert DB booleans into a List of Strings for the JWT
     private List<String> extractPermissionsForRole(String roleName) {
         RolePermission rp = rolePermissionRepository.findById(roleName)
@@ -84,6 +101,8 @@ public class AuthService {
         if (rp.getCanEditMetadata() != null && rp.getCanEditMetadata()) permissions.add("EDIT_METADATA");
         if (rp.getCanManageUsers() != null && rp.getCanManageUsers()) permissions.add("MANAGE_USERS");
         if (rp.getCanDeleteRecords() != null && rp.getCanDeleteRecords()) permissions.add("DELETE_RECORDS");
+        if (rp.getCanAddSensors() != null && rp.getCanAddSensors()) permissions.add("ADD_SENSORS");
+        if (rp.getCanDeleteSensors() != null && rp.getCanDeleteSensors()) permissions.add("DELETE_SENSORS");
 
         return permissions;
     }

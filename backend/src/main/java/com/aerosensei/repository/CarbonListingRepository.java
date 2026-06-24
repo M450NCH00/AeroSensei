@@ -38,4 +38,15 @@ public interface CarbonListingRepository extends JpaRepository<CarbonListing, Lo
     @Query("SELECT l FROM CarbonListing l WHERE l.status = 'active' AND l.sellerCompany IS NULL AND l.pricePerCredit >= :minPrice AND l.buyerCompany <> :seller ORDER BY l.pricePerCredit DESC, l.createdAt ASC")
     List<CarbonListing> findMatchingBuyRequests(@Param("minPrice") BigDecimal minPrice,
                                                  @Param("seller") Company seller);
+
+    // Self-match guards — highest/lowest still-open price on each side for one company.
+    // Returns null when the company has no open order on that side.
+
+    /** Highest price among the company's own open (active/pending) buy requests with credits left. */
+    @Query("SELECT MAX(l.pricePerCredit) FROM CarbonListing l WHERE l.buyerCompany = :company AND l.sellerCompany IS NULL AND l.status IN ('active', 'pending_matching') AND l.remainingCredits > 0")
+    BigDecimal findMaxOpenBuyPrice(@Param("company") Company company);
+
+    /** Lowest price among the company's own open (active/pending) sell listings with credits left. */
+    @Query("SELECT MIN(l.pricePerCredit) FROM CarbonListing l WHERE l.sellerCompany = :company AND l.status IN ('active', 'pending_matching') AND l.remainingCredits > 0")
+    BigDecimal findMinOpenSellPrice(@Param("company") Company company);
 }

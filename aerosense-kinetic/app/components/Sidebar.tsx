@@ -4,33 +4,41 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut } from "lucide-react";
+// 1. Imported the Building and Cpu icons here
+import { LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings, LogOut, Building, Cpu, Gavel } from "lucide-react";
 import axiosInstance from "../api/axiosInstance";
+import { useAuth } from "../context/AuthContext";
 
 export default function Sidebar() {
   const pathname = usePathname(); // This magic hook grabs the current URL path!
+  const { hasRole } = useAuth();
+  const isGov = hasRole("GOVERNMENT") || hasRole("ADMIN");
+  const isCompany = hasRole("COMPANY");
 
+  // 2. Added the two new registration links
   const navLinks = [
     { name: "Overview Map", href: "/dashboard", icon: LayoutDashboard },
     { name: "AI Assistant", href: "/dashboard/aiassistant", icon: Bot },
-    { name: "Sensor Sites", href: "/dashboard/sites", icon: Map },
+    { name: "Company Sites", href: "/dashboard/sites", icon: Map },
+    { name: "Register Site", href: "/dashboard/register-site", icon: Building },
+    { name: "Register Sensor", href: "/dashboard/register-sensor", icon: Cpu },
+    // Regulators impose fines here; companies view alerts & fines against them.
+    ...(isGov || isCompany
+      ? [{ name: isGov ? "Fines" : "My Fines", href: "/dashboard/fines", icon: Gavel }]
+      : []),
     { name: "Carbon Market", href: "/dashboard/carbon", icon: Leaf },
     { name: "Carbon Credit", href: "/dashboard/carbon-credit", icon: TrendingUp },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
 
   const handleLogout = async (e: React.MouseEvent) => {
-    e.preventDefault(); // Locks the click event so Axios can finish its job
+    e.preventDefault(); 
 
     try {
-      // Tell the backend to destroy the cookies
       await axiosInstance.post("/auth/logout");
-      
-      // Forcing a hard reload wipes the entire React memory state cleanly.
       window.location.href = "/login";
     } catch (error) {
       console.error("Failed to logout cleanly", error);
-      // Force them to login anyway if something gets stuck
       window.location.href = "/login";
     }
   };

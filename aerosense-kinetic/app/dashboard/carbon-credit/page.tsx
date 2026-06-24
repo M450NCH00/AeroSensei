@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Settings2, Plus, X, Pencil, Trash2, FlaskConical,
   Building2, TrendingUp, TrendingDown, Users, ChevronDown, Check, Loader2,
-  BarChart3, FileText, RefreshCw, Leaf,
+  BarChart3, FileText, RefreshCw, Leaf, Sparkles,
 } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
 import { useAuth } from "@/app/context/AuthContext";
@@ -118,6 +118,11 @@ export default function CarbonCreditPage() {
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // AI auto-classification (web research -> sector assignment via the AI agent)
+  const [autoClassifying, setAutoClassifying] = useState(false);
+  const [autoClassifyProgress, setAutoClassifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const [autoClassifyResult, setAutoClassifyResult] = useState<string | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   // Company-view state
@@ -126,7 +131,6 @@ export default function CarbonCreditPage() {
   const [companyPosition, setCompanyPosition] = useState<CompliancePosition | null>(null);
   const [companyMyReports, setCompanyMyReports] = useState<EmissionReportResponse[]>([]);
   const [companyMyAllocations, setCompanyMyAllocations] = useState<AllocationResponse[]>([]);
-  const [companyReportYear, setCompanyReportYear] = useState<number>(2025);
   const [companyReportType, setCompanyReportType] = useState<"MIDYEAR" | "FINAL">("FINAL");
   const [companyParamValues, setCompanyParamValues] = useState<Record<string, string>>({});
   const [companyActivityLevel, setCompanyActivityLevel] = useState("");
@@ -140,6 +144,11 @@ export default function CarbonCreditPage() {
   // Anchored to the latest compliance year that has seeded data (2025 is the
   // live demo year; 2022-2024 are settled history). The dropdowns show 2022-2025.
   const currentYear = 2025;
+
+  // Companies may only submit a report for the current open compliance year (the
+  // year the government has a cycle running for). The compliance-position viewer
+  // below uses its own year so companies can still browse past-year history.
+  const [positionYear, setPositionYear] = useState<number>(currentYear);
 
   const [companiesYear, setCompaniesYear] = useState<number>(currentYear);
   const [companiesReports, setCompaniesReports] = useState<EmissionReportResponse[]>([]);
@@ -359,6 +368,56 @@ export default function CarbonCreditPage() {
     }
   };
 
+  // Ask the AI agent to research each unclassified company on the web and assign
+  // it to the best-matching sector. One company per request keeps each agent turn
+  // within its tool-iteration budget; we refresh the table from the backend after.
+  const autoClassifySectors = async () => {
+    const unassigned = companies.filter(c => !c.sectorId);
+    if (unassigned.length === 0) {
+      setAutoClassifyResult("Every company already has a sector assigned.");
+      return;
+    }
+    setError(null);
+    setAutoClassifyResult(null);
+    setAutoClassifying(true);
+    setAutoClassifyProgress({ done: 0, total: unassigned.length });
+
+    const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+    let failures = 0;
+    for (let i = 0; i < unassigned.length; i++) {
+      const c = unassigned[i];
+      const name = c.companyName ?? c.email;
+      try {
+        const res = await fetch(`${aiAgentUrl}/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            question:
+              `Research what the company "${name}" (companyId ${c.companyId}) does, ` +
+              `then assign it to the single most appropriate existing sector using the ` +
+              `assign_company_sector tool. If no sector clearly fits, leave it unassigned.`,
+          }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+      } catch {
+        failures += 1;
+      }
+      setAutoClassifyProgress({ done: i + 1, total: unassigned.length });
+    }
+
+    // Reflect whatever the agent persisted on the backend.
+    await fetchCompanies();
+    setAutoClassifying(false);
+    setAutoClassifyProgress(null);
+    const ok = unassigned.length - failures;
+    setAutoClassifyResult(
+      `AI classification finished: processed ${ok}/${unassigned.length} compan${ok === 1 ? "y" : "ies"}` +
+      (failures ? `, ${failures} could not be reached.` : ".") +
+      " Review the assignments below and adjust any that look off."
+    );
+  };
+
   // ── Company-view helpers ──────────────────────────────────────────────────
 
   const requiredCompanyVars = useMemo(() => {
@@ -411,12 +470,12 @@ export default function CarbonCreditPage() {
   useEffect(() => { if (hasRole('COMPANY')) { fetchCompanyData(); } }, []);
 
   useEffect(() => {
-    if (hasRole('COMPANY')) fetchCompanyPosition(companyReportYear);
+    if (hasRole('COMPANY')) fetchCompanyPosition(positionYear);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyReportYear]);
+  }, [positionYear]);
 
   useEffect(() => {
-    const existing = companyMyReports.find(r => r.year === companyReportYear && r.reportType === companyReportType);
+    const existing = companyMyReports.find(r => r.year === currentYear && r.reportType === companyReportType);
     if (existing) {
       setCompanyActivityLevel(String(existing.activityLevel));
       setCompanyVerifiedEmissions(String(existing.verifiedEmissions));
@@ -432,7 +491,7 @@ export default function CarbonCreditPage() {
       setCompanyVerifiedEmissions("");
       setCompanyParamValues({});
     }
-  }, [companyReportYear, companyReportType, companyMyReports]);
+  }, [companyReportType, companyMyReports]);
 
   const handleCompanySubmitReport = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -440,7 +499,7 @@ export default function CarbonCreditPage() {
     setCompanyReportError(null);
     setCompanyReportSuccess(null);
     try {
-      const payload: Record<string, unknown> = { year: companyReportYear, reportType: companyReportType };
+      const payload: Record<string, unknown> = { year: currentYear, reportType: companyReportType };
       if (companyMySector) {
         const parameters: Record<string, number> = {};
         requiredCompanyVars.forEach(v => { parameters[v] = parseFloat(companyParamValues[v] ?? '') || 0; });
@@ -454,10 +513,11 @@ export default function CarbonCreditPage() {
       const label = companyReportType === 'MIDYEAR' ? 'Mid-year' : 'Final';
       setCompanyReportSuccess(
         companyMySector
-          ? `${label} report for ${companyReportYear} submitted — ${Number(r.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e over ${Number(r.activityLevel).toLocaleString(undefined, { maximumFractionDigits: 1 })} output.`
-          : `${label} report for ${companyReportYear} submitted successfully.`
+          ? `${label} report for ${currentYear} submitted — ${Number(r.verifiedEmissions).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e over ${Number(r.activityLevel).toLocaleString(undefined, { maximumFractionDigits: 1 })} output.`
+          : `${label} report for ${currentYear} submitted successfully.`
       );
-      await Promise.all([fetchCompanyData(), fetchCompanyPosition(companyReportYear)]);
+      setPositionYear(currentYear);
+      await Promise.all([fetchCompanyData(), fetchCompanyPosition(currentYear)]);
     } catch (err: any) {
       setCompanyReportError(err.response?.data?.message ?? err.response?.data ?? 'Failed to submit report.');
     } finally {
@@ -562,16 +622,10 @@ export default function CarbonCreditPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Reporting Year</label>
-                      <select
-                        value={companyReportYear}
-                        onChange={(e) => setCompanyReportYear(Number(e.target.value))}
-                        className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
-                      >
-                        {[0, 1, 2, 3].map((offset) => {
-                          const y = currentYear - offset;
-                          return <option key={y} value={y}>{y}</option>;
-                        })}
-                      </select>
+                      <div className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl bg-gray-50 text-gray-700 flex items-center justify-between">
+                        <span>{currentYear}</span>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Current cycle</span>
+                      </div>
                     </div>
                     <div>
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Report Type</label>
@@ -597,9 +651,9 @@ export default function CarbonCreditPage() {
                     </div>
                   </div>
 
-                  {companyMyReports.find(r => r.year === companyReportYear && r.reportType === companyReportType) && (
+                  {companyMyReports.find(r => r.year === currentYear && r.reportType === companyReportType) && (
                     <p className="text-[10px] font-bold text-[#F28C28]">
-                      Existing {companyReportType === 'MIDYEAR' ? 'mid-year' : 'final'} report found for {companyReportYear} — submitting will update it.
+                      Existing {companyReportType === 'MIDYEAR' ? 'mid-year' : 'final'} report found for {currentYear} — submitting will update it.
                     </p>
                   )}
 
@@ -615,6 +669,18 @@ export default function CarbonCreditPage() {
                           Enter your activity data below — emissions and activity level are computed from your sector formulas on submit.
                         </p>
                       </div>
+                      {companyMySector.formula && (
+                        <div className="bg-[#F8FAFC] border border-gray-100 rounded-2xl px-5 py-3">
+                          <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Emissions Formula</p>
+                          <p className="text-sm font-black text-[#005A8C] font-mono">{companyMySector.formula}</p>
+                        </div>
+                      )}
+                      {companyMySector.activityFormula && (
+                        <div className="bg-[#F8FAFC] border border-gray-100 rounded-2xl px-5 py-3">
+                          <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Activity Formula</p>
+                          <p className="text-sm font-black text-[#009B9E] font-mono">{companyMySector.activityFormula}</p>
+                        </div>
+                      )}
                       {requiredCompanyVars.length === 0 ? (
                         <p className="text-sm font-semibold text-gray-400">Your sector has no formula variables defined.</p>
                       ) : (
@@ -681,7 +747,7 @@ export default function CarbonCreditPage() {
                     type="submit" disabled={isSubmittingCompanyReport}
                     className="w-full py-3.5 bg-[#005A8C] text-white font-bold rounded-2xl hover:bg-[#004a73] transition-all disabled:opacity-50 cursor-pointer"
                   >
-                    {isSubmittingCompanyReport ? 'Submitting...' : `Submit ${companyReportYear} ${companyReportType === 'MIDYEAR' ? 'Mid-year' : 'Final'} Report`}
+                    {isSubmittingCompanyReport ? 'Submitting...' : `Submit ${currentYear} ${companyReportType === 'MIDYEAR' ? 'Mid-year' : 'Final'} Report`}
                   </button>
                 </form>
               </div>
@@ -694,7 +760,7 @@ export default function CarbonCreditPage() {
               <div className="flex items-center gap-3">
                 <Leaf size={18} className="text-[#009B9E]" />
                 <div>
-                  <h2 className="font-black text-base text-[#009B9E]">Compliance Position — {companyReportYear}</h2>
+                  <h2 className="font-black text-base text-[#009B9E]">Compliance Position — {positionYear}</h2>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Allowances vs. verified emissions</p>
                 </div>
               </div>
@@ -705,8 +771,8 @@ export default function CarbonCreditPage() {
                   </span>
                 )}
                 <select
-                  value={companyReportYear}
-                  onChange={(e) => setCompanyReportYear(Number(e.target.value))}
+                  value={positionYear}
+                  onChange={(e) => setPositionYear(Number(e.target.value))}
                   className="px-3 py-1.5 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
                 >
                   {[0, 1, 2, 3].map((offset) => {
@@ -718,7 +784,7 @@ export default function CarbonCreditPage() {
             </div>
             <div className="p-7">
               {!companyPosition ? (
-                <p className="text-sm font-bold text-gray-300">No compliance data for {companyReportYear} yet.</p>
+                <p className="text-sm font-bold text-gray-300">No compliance data for {positionYear} yet.</p>
               ) : (
                 <>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
@@ -872,7 +938,7 @@ export default function CarbonCreditPage() {
                   : "text-gray-500 hover:text-[#005A8C]"
               }`}
             >
-              {tab === "companies" ? "Companies" : tab === "sectors" ? "Sector Formulas" : "Allocations"}
+              {tab === "companies" ? "Companies" : tab === "sectors" ? "Sector Formulas" : "Phases"}
             </button>
           ))}
         </div>
@@ -975,11 +1041,28 @@ export default function CarbonCreditPage() {
           ) : (
             <div ref={dropdownRef} className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
               {/* Header row with year selector */}
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                   {companies.length} companies
+                  {(() => {
+                    const n = companies.filter(c => !c.sectorId).length;
+                    return n > 0 ? <span className="ml-2 text-[#F28C28] normal-case">· {n} unclassified</span> : null;
+                  })()}
                 </p>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={autoClassifySectors}
+                    disabled={autoClassifying || companies.filter(c => !c.sectorId).length === 0}
+                    title="Research unclassified companies on the web and auto-assign their sector"
+                    className="flex items-center gap-2 px-4 py-2 bg-[#009B9E] text-white text-xs font-bold rounded-xl hover:bg-[#007d80] transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {autoClassifying
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Sparkles size={14} />}
+                    {autoClassifying
+                      ? `Classifying ${autoClassifyProgress?.done ?? 0}/${autoClassifyProgress?.total ?? 0}…`
+                      : "Auto-classify (AI)"}
+                  </button>
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Consumption year</span>
                   <select
                     value={companiesYear}
@@ -997,6 +1080,13 @@ export default function CarbonCreditPage() {
                   </select>
                 </div>
               </div>
+
+              {autoClassifyResult && (
+                <div className="mx-6 mt-4 p-3.5 bg-[#009B9E]/5 border border-[#009B9E]/20 rounded-2xl text-xs font-bold text-[#007d80] flex justify-between items-start gap-3">
+                  <span className="flex items-center gap-2"><Sparkles size={14} className="shrink-0" />{autoClassifyResult}</span>
+                  <button onClick={() => setAutoClassifyResult(null)} className="cursor-pointer shrink-0"><X size={14} /></button>
+                </div>
+              )}
 
               <div className="px-6 py-3 grid grid-cols-12 gap-4 border-b border-gray-100 bg-gray-50/40">
                 <span className="col-span-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Company</span>
@@ -1237,7 +1327,7 @@ export default function CarbonCreditPage() {
             <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
                 <FileText size={15} className="text-[#005A8C]" />
-                <span className="text-sm font-black text-[#005A8C]">China ETS Allocation Formula</span>
+                <span className="text-sm font-black text-[#005A8C]">Vietnam ETS Allocation Formula</span>
               </div>
               <div className="px-6 py-5 grid grid-cols-3 gap-6">
 
