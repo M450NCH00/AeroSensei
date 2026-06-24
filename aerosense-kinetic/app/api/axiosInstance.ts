@@ -10,13 +10,22 @@ const axiosInstance = axios.create({
   },
 });
 
+// Endpoints where a 401 means "bad credentials" / "no session" — NOT an expired
+// token. These must never trigger the silent-refresh-then-redirect flow, or a
+// failed login would reload the page instead of surfacing the error message.
+const AUTH_ENDPOINTS = ["/auth/login", "/auth/refresh", "/auth/logout"];
+
 // Global interceptor for automated silent token refreshing
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const isAuthEndpoint = AUTH_ENDPOINTS.some((path) =>
+      originalRequest?.url?.includes(path)
+    );
+
+    if (error.response?.status === 401 && !isAuthEndpoint && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
         // Automatically hits your friend's refresh route using the base URL
