@@ -41,10 +41,10 @@ def _fallback_alert(alert: dict) -> str:
     pm_type = (alert.get("pm_type") or "PM").upper()
     measured = alert.get("measured_value")
     threshold = alert.get("threshold_value")
-    level = (alert.get("alert_level") or "warning").upper()
+    level = (alert.get("alert_level") or "WARNING").upper()
     measured_str = f"{measured} µg/m³" if measured is not None else "above the limit"
     threshold_str = f" (threshold {threshold} µg/m³)" if threshold is not None else ""
-    icon = "🔴" if level == "CRITICAL" else "⚠️"
+    icon = "🔴" if level == "BREACHED" else "⚠️"
     note = f" Note: {alert['note']}." if alert.get("note") else ""
     return (
         f"{icon} {level} air-quality alert — sensor {sensor}: {pm_type} reached "
