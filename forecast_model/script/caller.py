@@ -157,20 +157,31 @@ def _fetch_open_meteo_wind(lat: float, lon: float) -> float:
 # ─────────────────────────────────────────────
 # STEP 1 — InfluxDB: fetch sensor + neighbours
 # ─────────────────────────────────────────────
-def fetch_company_sensor_data(
-    company_id: str,
+
+def _query_influx_with_fallback(influx_client, flux_template, org, windows=("-60m", "-24h", "-7d")):
+    """Try progressively wider time windows until data is found."""
+    for window in windows:
+        flux = flux_template.format(window=window)
+        tables = influx_client.query_api().query(flux, org=org)
+        records = [r for t in tables for r in t.records]
+        if records:
+            return tables
+    return []
+
+def fetch_site_sensor_data(
+    site_id: int,
     bucket: str,
     org: str,
     influx_client,
     pg_conn,
 ) -> dict | None:
     """
-    Fetch aggregated sensor data for a given company_id.
+    Fetch aggregated sensor data for a given site_id.
 
-    1. Fetches all sensor UUIDs, latitude, and longitude from PostgreSQL.
-    2. Queries InfluxDB for the latest pm2_5 and pm10 per sensor.
-    3. Returns averaged pm2_5 and pm10 across all sensors, with the
-       timestamp broken into year/month/day/hour from the latest reading.
+    1. Fetches site latitude/longitude from company_sites.
+    2. Fetches all active sensor UUIDs under that site from sensor_registry.
+    3. Queries InfluxDB for the latest pm2_5 and pm10 per sensor.
+    4. Returns averaged pm2_5/pm10 with timestamp from the latest reading.
 
     Returns {
         "year": int, "month": int, "day": int, "hour": int,
@@ -178,40 +189,57 @@ def fetch_company_sensor_data(
         "pm2_5": float, "pm10": float,
     } or None if no sensors or no InfluxDB data found.
     """
-    # Step 1: Fetch all sensor UUIDs and company location from PostgreSQL
+    # Step 1: Fetch site location from company_sites
     with pg_conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, latitude, longitude
+            SELECT latitude, longitude
+            FROM company_sites
+            WHERE id = %s
+            """,
+            (site_id,),
+        )
+        site_row = cur.fetchone()
+
+    if site_row is None:
+        return None
+
+    site_latitude, site_longitude = float(site_row[0]), float(site_row[1])
+
+    # Step 2: Fetch all active sensor UUIDs under this site
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id
             FROM sensor_registry
-            WHERE company_id = %s
+            WHERE site_id = %s
               AND status = 'active'
             """,
-            (company_id,),
+            (site_id,),
         )
         rows = cur.fetchall()
 
     if not rows:
         return None
 
-    uuid_list      = [str(row[0]) for row in rows]
-    comp_latitude  = float(rows[0][1])
-    comp_longitude = float(rows[0][2])
+    uuid_list = [str(row[0]) for row in rows]
 
-    # Step 2: Query InfluxDB for latest pm2_5 and pm10 across all sensors
-    uuid_filter = " or ".join(f'r.sensor_id == "{uid}"' for uid in uuid_list)
+    # Step 3: Query InfluxDB for latest pm2_5 and pm10 across all sensors
+    uuids_flux   = str(uuid_list).replace("'", '"')
+    flux_template = f'''
+    uuids = {uuids_flux}
 
-    flux = f'''
     from(bucket: "{bucket}")
-      |> range(start: -60m)
+      |> range(start: {{window}})
       |> filter(fn: (r) => r._measurement == "air_quality")
-      |> filter(fn: (r) => {uuid_filter})
+      |> filter(fn: (r) => contains(value: r.sensor_id, set: uuids))
       |> filter(fn: (r) => r._field == "pm2_5" or r._field == "pm10")
       |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
       |> sort(columns:["_time"], desc: true)
       |> limit(n: {len(uuid_list)})
     '''
-    tables = influx_client.query_api().query(flux, org=org)
+
+    tables = _query_influx_with_fallback(influx_client, flux_template, org)
 
     pm25_values = []
     pm10_values = []
@@ -222,7 +250,6 @@ def fetch_company_sensor_data(
             t = record.get_time()
             if latest_time is None or t > latest_time:
                 latest_time = t
-
             pm25 = record.values.get("pm2_5")
             pm10 = record.values.get("pm10")
             if pm25 is not None:
@@ -238,8 +265,8 @@ def fetch_company_sensor_data(
         "month":     latest_time.month,
         "day":       latest_time.day,
         "hour":      latest_time.hour,
-        "latitude":  comp_latitude,
-        "longitude": comp_longitude,
+        "latitude":  site_latitude,
+        "longitude": site_longitude,
         "pm2_5":     float(np.mean(pm25_values)) if pm25_values else np.nan,
         "pm10":      float(np.mean(pm10_values)) if pm10_values else np.nan,
     }
