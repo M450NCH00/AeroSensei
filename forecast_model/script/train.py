@@ -1,13 +1,18 @@
 import numpy as np
 import pandas as pd
 import joblib
-from tqdm import tqdm
+import argparse
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 from xgboost import XGBRegressor
+
+parser = argparse.ArgumentParser(description="A sample script to accept arguments.")
+parser.add_argument("--pm", type=int, default=25, help="Target pm value")
+parser.add_argument("--hr", type=int, default=1, help="Forecast horizon in hours (1, 3, 6, 12 or 24)")
+args = parser.parse_args()
 
 def prepare_features(df, target_col):
     df = df.copy()
@@ -64,241 +69,250 @@ def regression_metrics(y_true, y_pred):
         "Bias": np.mean(y_pred - y_true),
     }
 
-time_list = [1]
+time_list = [args.hr]
 
 for i in time_list:
-  print(f"===========Training {i}h model=================")
-  try:
-    del(models)
-    print("Model refreshed")
-  except:
-    print("No model to refresh")
-    
-  DATA_PATH = f"data/vietnam_training_table_{i}h_long.csv"
-  TARGET = f"target_pm2_5_tplus_{i}h"
+    print(f"===========Training {i}h model=================")
+    try:
+        del(models)
+        print("Model refreshed")
+    except:
+        print("No model to refresh")
 
-  df = pd.read_csv(DATA_PATH)
-  df["time"] = pd.to_datetime(df["time"])
+    DATA_PATH = f"vietnam_training_table_{i}h_long.csv"
+    TARGET = f"target_pm2_5_tplus_{i}h"
 
-  df_cleaned = df.dropna(subset=['aq_pm2_5', 'aq_pm10'])
-  print(f"Original DataFrame shape: {df.shape}")
-  print(f"Cleaned DataFrame shape: {df_cleaned.shape}")
+    df = pd.read_csv(DATA_PATH)
+    df["time"] = pd.to_datetime(df["time"])
 
-  for col in df_cleaned.columns:
-      if pd.api.types.is_numeric_dtype(df_cleaned[col]):
-          # Calculate mean only from non-NaN values
-          mean_value = df_cleaned[col].mean()
-          # Fill NaN values with the calculated mean
-          df_cleaned[col].fillna(mean_value, inplace=True)
-          #df_cleaned[col].fillna(0, inplace=True)
-      else:
-          print(f"Skipping non-numeric column: {col}")
+    df_cleaned = df.dropna(subset=['aq_pm2_5', 'aq_pm10'])
+    print(f"Original DataFrame shape: {df.shape}")
+    print(f"Cleaned DataFrame shape: {df_cleaned.shape}")
 
-  print("NaN values have been replaced with the mean of their respective columns.")
-  # Display a summary of NaN values after cleaning
-  print("\nNaN values count after imputation:")
-  print(df_cleaned.isnull().sum()[df_cleaned.isnull().sum() > 0])
+    for col in df_cleaned.columns:
+        if pd.api.types.is_numeric_dtype(df_cleaned[col]):
+            # Calculate mean only from non-NaN values
+            mean_value = df_cleaned[col].mean()
+            # Fill NaN values with the calculated mean
+            df_cleaned[col].fillna(mean_value, inplace=True)
+            #df_cleaned[col].fillna(0, inplace=True)
+        else:
+            print(f"Skipping non-numeric column: {col}")
 
-  X, y = prepare_features(df_cleaned, TARGET)
-  
-  print(X.columns)
-  X_train, y_train, X_val, y_val, X_test, y_test = chronological_split(df_cleaned, X, y)
+    print("NaN values have been replaced with the mean of their respective columns.")
+    # Display a summary of NaN values after cleaning
+    print("\nNaN values count after imputation:")
+    print(df_cleaned.isnull().sum()[df_cleaned.isnull().sum() > 0])
 
-  X_train = X_train.drop(columns=["time"], errors="ignore")
-  X_val = X_val.drop(columns=["time"], errors="ignore")
-  X_test = X_test.drop(columns=["time"], errors="ignore")
+    if args.pm == 25:
+        df_cleaned = df_cleaned.drop(columns=["aq_pm10"], errors="ignore")
+    elif args.pm == 10:
+        df_cleaned = df_cleaned.drop(columns=["aq_pm2_5"], errors="ignore")
 
-  rf_model = RandomForestRegressor(
-      n_estimators=800,
-      max_depth=24,
-      min_samples_leaf=2,
-      min_samples_split=4,
-      max_features="sqrt",
-      bootstrap=True,
-      random_state=42,
-      n_jobs=-1,
-  )
+    X, y = prepare_features(df_cleaned, TARGET)
 
-  lgbm_model = LGBMRegressor(
-      n_estimators=3000,
-      learning_rate=0.01,
-      num_leaves=63,
-      max_depth=-1,
-      min_child_samples=30,
-      subsample=0.85,
-      subsample_freq=1,
-      colsample_bytree=0.85,
-      reg_alpha=0.2,
-      reg_lambda=1.0,
-      objective="regression",
-      random_state=42,
-      n_jobs=-1,
-  )
+    print(X.columns)
+    X_train, y_train, X_val, y_val, X_test, y_test = chronological_split(df_cleaned, X, y)
 
-  xgb_model = XGBRegressor(
-      n_estimators=2500,
-      learning_rate=0.015,
-      max_depth=7,
-      min_child_weight=5,
-      subsample=0.85,
-      colsample_bytree=0.85,
-      reg_alpha=0.1,
-      reg_lambda=1.5,
-      gamma=0.05,
-      objective="reg:squarederror",
-      tree_method="hist",
-      random_state=42,
-      n_jobs=-1,
-  )
+    X_train = X_train.drop(columns=["time"], errors="ignore")
+    X_val = X_val.drop(columns=["time"], errors="ignore")
+    X_test = X_test.drop(columns=["time"], errors="ignore")
 
+    rf_model = RandomForestRegressor(
+        n_estimators=800,
+        max_depth=24,
+        min_samples_leaf=2,
+        min_samples_split=4,
+        max_features="sqrt",
+        bootstrap=True,
+        random_state=42,
+        n_jobs=-1,
+    )
 
-  models = {}
-  val_predictions = {}
-  test_predictions = {}
-  results = []
+    lgbm_model = LGBMRegressor(
+        n_estimators=3000,
+        learning_rate=0.01,
+        num_leaves=63,
+        max_depth=-1,
+        min_child_samples=30,
+        subsample=0.85,
+        subsample_freq=1,
+        colsample_bytree=0.85,
+        reg_alpha=0.2,
+        reg_lambda=1.0,
+        objective="regression",
+        random_state=42,
+        n_jobs=-1,
+    )
 
-
-  print("Training Random Forest...")
-  rf_model.fit(X_train, y_train)
-  models["Random Forest"] = rf_model
-
-  val_predictions["Random Forest"] = rf_model.predict(X_val)
-  test_predictions["Random Forest"] = rf_model.predict(X_test)
+    xgb_model = XGBRegressor(
+        n_estimators=2500,
+        learning_rate=0.015,
+        max_depth=7,
+        min_child_weight=5,
+        subsample=0.85,
+        colsample_bytree=0.85,
+        reg_alpha=0.1,
+        reg_lambda=1.5,
+        gamma=0.05,
+        objective="reg:squarederror",
+        tree_method="hist",
+        random_state=42,
+        n_jobs=-1,
+    )
 
 
-  print("Training LightGBM...")
-  lgbm_model.fit(
-      X_train,
-      y_train,
-      eval_set=[(X_val, y_val)],
-      eval_metric="rmse",
-      callbacks=[
-          early_stopping(stopping_rounds=150),
-          log_evaluation(period=200),
-      ],
-  )
-
-  models["LightGBM"] = lgbm_model
-
-  val_predictions["LightGBM"] = lgbm_model.predict(X_val)
-  test_predictions["LightGBM"] = lgbm_model.predict(X_test)
+    models = {}
+    val_predictions = {}
+    test_predictions = {}
+    results = []
 
 
-  print("Training XGBoost...")
-  xgb_model.fit(
-      X_train,
-      y_train,
-      eval_set=[(X_val, y_val)],
-      verbose=200,
-  )
+    # print("Training Random Forest...")
+    # rf_model.fit(X_train, y_train)
+    # models["Random Forest"] = rf_model
 
-  models["XGBoost"] = xgb_model
-
-  val_predictions["XGBoost"] = xgb_model.predict(X_val)
-  test_predictions["XGBoost"] = xgb_model.predict(X_test)
+    # val_predictions["Random Forest"] = rf_model.predict(X_val)
+    # test_predictions["Random Forest"] = rf_model.predict(X_test)
 
 
-  for name in models:
-      results.append({
-          "Model": name,
-          "Dataset": "Validation",
-          **regression_metrics(y_val, val_predictions[name]),
-      })
+    print("Training LightGBM...")
+    lgbm_model.fit(
+        X_train,
+        y_train,
+        eval_set=[(X_val, y_val)],
+        eval_metric="rmse",
+        callbacks=[
+            early_stopping(stopping_rounds=150),
+            log_evaluation(period=200),
+        ],
+    )
 
-      results.append({
-          "Model": name,
-          "Dataset": "Test",
-          **regression_metrics(y_test, test_predictions[name]),
-      })
+    models["LightGBM"] = lgbm_model
 
-
-  # Simple average ensemble
-  simple_val = np.mean(
-      np.column_stack([val_predictions[name] for name in models]),
-      axis=1,
-  )
-
-  simple_test = np.mean(
-      np.column_stack([test_predictions[name] for name in models]),
-      axis=1,
-  )
-
-  results.append({
-      "Model": "Simple Average Ensemble",
-      "Dataset": "Validation",
-      **regression_metrics(y_val, simple_val),
-  })
-
-  results.append({
-      "Model": "Simple Average Ensemble",
-      "Dataset": "Test",
-      **regression_metrics(y_test, simple_test),
-  })
+    val_predictions["LightGBM"] = lgbm_model.predict(X_val)
+    test_predictions["LightGBM"] = lgbm_model.predict(X_test)
 
 
-  # RMSE-weighted ensemble
-  val_rmse = {
-      name: np.sqrt(mean_squared_error(y_val, val_predictions[name]))
-      for name in models
-  }
+    print("Training XGBoost...")
+    xgb_model.fit(
+        X_train,
+        y_train,
+        eval_set=[(X_val, y_val)],
+        verbose=200,
+    )
 
-  inv_rmse = {
-      name: 1.0 / rmse
-      for name, rmse in val_rmse.items()
-  }
+    models["XGBoost"] = xgb_model
 
-  total = sum(inv_rmse.values())
-
-  weights = {
-      name: inv_rmse[name] / total
-      for name in models
-  }
-
-  weighted_val = sum(
-      weights[name] * val_predictions[name]
-      for name in models
-  )
-
-  weighted_test = sum(
-      weights[name] * test_predictions[name]
-      for name in models
-  )
-
-  results.append({
-      "Model": "Weighted Ensemble",
-      "Dataset": "Validation",
-      **regression_metrics(y_val, weighted_val),
-  })
-
-  results.append({
-      "Model": "Weighted Ensemble",
-      "Dataset": "Test",
-      **regression_metrics(y_test, weighted_test),
-  })
+    val_predictions["XGBoost"] = xgb_model.predict(X_val)
+    test_predictions["XGBoost"] = xgb_model.predict(X_test)
 
 
-  results_df = pd.DataFrame(results)
-  test_results = results_df[results_df["Dataset"] == "Test"].sort_values("RMSE")
+    for name in models:
+        results.append({
+            "Model": name,
+            "Dataset": "Validation",
+            **regression_metrics(y_val, val_predictions[name]),
+        })
 
-  print("\nTest results:")
-  print(test_results)
+        results.append({
+            "Model": name,
+            "Dataset": "Test",
+            **regression_metrics(y_test, test_predictions[name]),
+        })
 
-  print("\nWeighted ensemble weights:")
-  print(weights)
+
+    # Simple average ensemble
+    simple_val = np.mean(
+        np.column_stack([val_predictions[name] for name in models]),
+        axis=1,
+    )
+
+    simple_test = np.mean(
+        np.column_stack([test_predictions[name] for name in models]),
+        axis=1,
+    )
+
+    results.append({
+        "Model": "Simple Average Ensemble",
+        "Dataset": "Validation",
+        **regression_metrics(y_val, simple_val),
+    })
+
+    results.append({
+        "Model": "Simple Average Ensemble",
+        "Dataset": "Test",
+        **regression_metrics(y_test, simple_test),
+    })
 
 
-  joblib.dump(
-      {
-          "models": models,
-          "weights": weights,
-          "feature_columns": list(X.columns),
-          "target": TARGET,
-      },
-      f"air_quality_models_pm25_{i}h.joblib",
-  )
+    # RMSE-weighted ensemble
+    val_rmse = {
+        name: np.sqrt(mean_squared_error(y_val, val_predictions[name]))
+        for name in models
+    }
 
-  results_df.to_csv(f"improved_model_comparison_results_{i}h.csv", index=False)
+    inv_rmse = {
+        name: 1.0 / rmse
+        for name, rmse in val_rmse.items()
+    }
 
-  print("\nSaved:")
-  print(f"air_quality_models_pm25_{i}h.joblib")
-  print(f"model_comparison_results_{i}h.csv")
+    total = sum(inv_rmse.values())
+
+    weights = {
+        name: inv_rmse[name] / total
+        for name in models
+    }
+
+    weighted_val = sum(
+        weights[name] * val_predictions[name]
+        for name in models
+    )
+
+    weighted_test = sum(
+        weights[name] * test_predictions[name]
+        for name in models
+    )
+
+    results.append({
+        "Model": "Weighted Ensemble",
+        "Dataset": "Validation",
+        **regression_metrics(y_val, weighted_val),
+    })
+
+    results.append({
+        "Model": "Weighted Ensemble",
+        "Dataset": "Test",
+        **regression_metrics(y_test, weighted_test),
+    })
+
+
+    results_df = pd.DataFrame(results)
+    test_results = results_df[results_df["Dataset"] == "Test"].sort_values("RMSE")
+
+    print("\nTest results:")
+    print(test_results)
+
+    print("\nWeighted ensemble weights:")
+    print(weights)
+
+    # Identify the best individual model by RMSE
+    best_model_name = test_results[test_results["Model"].isin(models.keys())].iloc[0]["Model"]
+    print(f"\nBest model: {best_model_name}")
+
+
+    joblib.dump(
+        {
+            "models": {best_model_name: models[best_model_name]},
+            "weights": {best_model_name: 1.0},  # full weight since it's the only model
+            "feature_columns": list(X.columns),
+            "target": TARGET,
+        },
+        f"air_quality_models_pm{args.pm}_{i}h.joblib",
+    )
+
+    results_df.to_csv(f"comparison_results_{args.pm}_{i}h.csv", index=False)
+
+    print("\nSaved:")
+    print(f"air_quality_models_pm{args.pm}_{i}h.joblib")
+    print(f"comparison_results_{args.pm}_{i}h.csv")

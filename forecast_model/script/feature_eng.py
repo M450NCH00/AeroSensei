@@ -407,3 +407,21 @@ def date_chunks(start_date, end_date, freq="3MS"):
         ))
 
     return chunks
+
+def prepare_features(df):
+        df = df.copy()
+
+        X = df.drop(columns=["time"])
+
+        # Keep lat_km/lon_km, drop raw lat/lon
+        X = X.drop(columns=["latitude", "longitude"], errors="ignore")
+
+        # One-hot encoding for location and region
+        categorical_cols = [
+            col for col in ["location", "region"]
+            if col in X.columns
+        ]
+
+        X = pd.get_dummies(X, columns=categorical_cols, drop_first=False)
+
+        return X

@@ -1,5 +1,6 @@
 from pathlib import Path
 import numpy as np
+import os
 # ============================================================
 # Data Extract Variables
 # ============================================================
@@ -58,5 +59,19 @@ END_DATE = "2026-06-01"
 OUTPUT_DIR = Path("data")
 
 #HORIZONS = [1, 3, 6, 12, 24]
-HORIZONS = [1]  # For testing, just do 1-hour ahead
+HORIZONS = [3]  # For testing, just do 1-hour ahead
 N_NEIGHBORS = 4
+
+INFLUX_URL = os.getenv("INFLUX_URL", "http://localhost:8086")
+INFLUX_TOKEN = os.getenv(
+    "INFLUX_TOKEN",
+    "my-super-secret-admin-token-12345"
+)
+INFLUX_ORG = os.getenv("INFLUX_ORG", "my-org")
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "sensors_data")
+
+PG_HOST = os.getenv("PG_HOST", "localhost")
+PG_PORT = os.getenv("PG_PORT", "5432")
+PG_DB = os.getenv("PG_DB", "postgresdb")
+PG_USER = os.getenv("PG_USER", "admin")
+PG_PASS = os.getenv("PG_PASS", "ChangeThisPassword123!")

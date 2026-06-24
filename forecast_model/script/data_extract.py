@@ -3,7 +3,11 @@ import pandas as pd
 from feature_eng import *
 from caller import *
 from constants import *
+import argparse
 
+parser = argparse.ArgumentParser(description="A sample script to accept arguments.")
+parser.add_argument("--hr", type=int, default=1, help="Forecast horizon in hours (1, 3, 6, 12 or 24)")
+args = parser.parse_args()
 
 def fetch_air_quality(location_name, lat, lon, start_date, end_date):
     """
@@ -156,19 +160,19 @@ def build_raw_dataset(
 
 if __name__ == "__main__":
 
-    raw_df = build_raw_dataset(
-      start_date=START_DATE,
-      end_date=END_DATE,
-      chunk_freq="3MS",              # safer than one huge request
-      sleep_between_requests=3,      # increase to 5 or 10 if still rate-limited
-  )
+#     raw_df = build_raw_dataset(
+#       start_date=START_DATE,
+#       end_date=END_DATE,
+#       chunk_freq="3MS",              # safer than one huge request
+#       sleep_between_requests=3,      # increase to 5 or 10 if still rate-limited
+#   )
 
-    OUTPUT_DIR.mkdir(exist_ok=True)
+#     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    raw_df.to_csv(
-        OUTPUT_DIR / "vietnam_open_meteo_raw.csv",
-        index=False,
-    )
+#     raw_df.to_csv(
+#         OUTPUT_DIR / "vietnam_open_meteo_raw.csv",
+#         index=False,
+#     )
     raw_df = pd.read_csv(OUTPUT_DIR / "vietnam_open_meteo_raw.csv")
     for horizon in HORIZONS:
         training_df = build_training_table(
