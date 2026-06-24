@@ -36,6 +36,10 @@
 // NTP for the ISO-8601 UTC timestamp the ingest endpoint expects
 #define NTP_SERVER "pool.ntp.org"
 
+// How often to read the SPS30 and POST to the backend (matches the
+// Python traffic simulator's READING_INTERVAL of 15 seconds)
+#define POST_INTERVAL_MS 15000
+
 // =====================================================
 // SPS30 Configuration
 // =====================================================
@@ -284,7 +288,7 @@ void loop()
     float nc0p5 = 0, nc1p0 = 0, nc2p5 = 0, nc4p0 = 0, nc10p0 = 0;
     float typicalParticleSize = 0;
 
-    delay(1000);
+    delay(POST_INTERVAL_MS);
 
     int16_t error = sps30.readMeasurementValuesFloat(
         mc1p0, mc2p5, mc4p0, mc10p0,
