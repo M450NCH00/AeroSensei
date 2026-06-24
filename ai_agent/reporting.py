@@ -3,7 +3,7 @@
 Given a target (a company or a single site) and an optional timeline, this:
   1. gathers data from the backend (company, sites, time-series PM history,
      breach alerts, fines) — each source degrades gracefully if unavailable,
-  2. assesses PM readings against Vietnam's QCVN 05:2013 limits and WHO guidelines,
+  2. assesses PM readings against Vietnam's QCVN 05:2023 limits and WHO guidelines,
   3. asks the LLM for an executive summary + recommendations grounded in the data,
   4. renders a PDF and returns a download URL served by the agent.
 
@@ -195,8 +195,8 @@ def _narrative(facts: dict) -> str:
                 "quality and compliance posture; then a 'Recommendations' paragraph (2-4 "
                 "sentences) of concrete regulatory actions. The network measures only "
                 "particulate matter (PM2.5, PM10) — do NOT mention or imply any overall air "
-                "quality index. Compare concentrations against Vietnam's QCVN 05:2013 "
-                "24-hour limits (PM2.5 50, PM10 150 µg/m³) and the WHO 2021 guidelines "
+                "quality index. Compare concentrations against Vietnam's QCVN 05:2023 "
+                "24-hour limits (PM2.5 45, PM10 100 µg/m³) and the WHO 2021 guidelines "
                 "(PM2.5 15, PM10 45 µg/m³). Use ONLY the data provided; do not invent numbers."
             )},
             {"role": "user", "content": (
@@ -216,7 +216,7 @@ def _narrative(facts: dict) -> str:
     return (
         f"Executive Summary: This report covers {facts['company_name']} over {period}. "
         f"{len(facts['site_stats'])} site(s) had PM2.5/PM10 concentrations assessed against "
-        f"Vietnam's QCVN 05:2013 limits and WHO 2021 guidelines; {n_exceed} site(s) exceeded "
+        f"Vietnam's QCVN 05:2023 limits and WHO 2021 guidelines; {n_exceed} site(s) exceeded "
         f"the national limit. {len(facts['alerts'])} PM-breach alert(s) ({n_breached} at "
         f"BREACHED level) and {len(facts['fines'])} fine(s) were recorded in the period.\n\n"
         "Recommendations: Prioritise sites exceeding the QCVN 24-hour limit, ensure all "
@@ -275,7 +275,7 @@ def _render_pdf(facts: dict, narrative: str, path: str) -> None:
         ["Generated", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")],
         ["Prepared by", "AeroSense AI Assistant"],
         ["Pollutants measured", "PM2.5, PM10 (particulate matter only)"],
-        ["Assessment basis", "QCVN 05:2013/BTNMT 24-hour limits"],
+        ["Assessment basis", "QCVN 05:2023/BTNMT 24-hour limits"],
         ["Health reference", "WHO Global Air Quality Guidelines 2021"],
     ]
     mt = Table(meta, colWidths=[40 * mm, None])
@@ -309,9 +309,24 @@ def _render_pdf(facts: dict, narrative: str, path: str) -> None:
         aq_rows.append(["No time-series data for the period", "", "", "", "", "", "", ""])
     el.append(_grid(aq_rows, NAVY))
     el.append(Paragraph(
-        "Concentrations in µg/m³ (period average / max). Assessed against QCVN 05:2013 "
-        "24-hour limits (PM2.5 50, PM10 150) and WHO 2021 guidelines (PM2.5 15, PM10 45).",
-        small))
+        "Concentrations in µg/m³ (period average). 'vs limit' is the period-average "
+        "assessment against the reference limits below.", small))
+
+    # Reference limits used for the assessment (pulled from report_standards so the
+    # table always matches the thresholds actually applied).
+    el.append(Paragraph("Reference Limits (µg/m³)", h2))
+    ref_rows = [["Pollutant", "QCVN 05:2023 — 24-hour", "QCVN 05:2023 — annual",
+                 "WHO 2021 — 24-hour", "WHO 2021 — annual"]]
+    for key, label in (("pm2.5", "PM2.5"), ("pm10", "PM10")):
+        q = report_standards.QCVN_2023[key]
+        w = report_standards.WHO_2021[key]
+        ref_rows.append([label, str(q["daily"]), str(q["annual"]),
+                         str(w["daily"]), str(w["annual"])])
+    el.append(_grid(ref_rows, TEAL))
+    el.append(Paragraph(
+        "QCVN 05:2023/BTNMT is Vietnam's national ambient limit (the legal standard); "
+        "WHO 2021 is the stricter health-based guideline. The PM2.5 24-hour limit of "
+        "45 µg/m³ is effective 1 Jan 2026 (previously 50).", small))
 
     # Breach alerts.
     el.append(Paragraph(f"PM Breach Alerts ({len(facts['alerts'])})", h2))

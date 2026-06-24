@@ -120,7 +120,7 @@ SKILLS: list[Skill] = [
             "from/to dates). If neither company nor site is named, ask which one.",
             "Call generate_air_quality_report with target_type, name, and the "
             "optional from_date/to_date. It gathers PM2.5/PM10 history, alerts and "
-            "fines, assesses readings against QCVN 05:2013 and WHO limits, and "
+            "fines, assesses readings against QCVN 05:2023 and WHO limits, and "
             "renders the PDF.",
             "Relay the returned report_url to the user as a clickable download link, "
             "and briefly summarize the headline figures (sites covered, alerts, "

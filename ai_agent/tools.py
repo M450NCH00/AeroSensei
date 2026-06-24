@@ -275,7 +275,7 @@ TOOLS: list[Tool] = [
             "Generate a comprehensive PDF air-quality & compliance report for a "
             "COMPANY (all its sites) or a single SITE, over an optional date range. "
             "The report includes per-site PM2.5/PM10 averages assessed against "
-            "Vietnam's QCVN 05:2013 limits and WHO guidelines, breach alerts, and "
+            "Vietnam's QCVN 05:2023 limits and WHO guidelines, breach alerts, and "
             "fines, with an AI-written executive summary. Use when the user asks for "
             "a report/PDF about a "
             "company or site. Returns a download URL — give that link to the user. "
