@@ -108,6 +108,26 @@ SKILLS: list[Skill] = [
         ],
     ),
     Skill(
+        name="Air-quality report generation (PDF)",
+        when_to_use=(
+            "The user asks for a report, PDF, or written summary about a specific "
+            "company or site — optionally over a date range/timeline."
+        ),
+        tools=["generate_air_quality_report"],
+        steps=[
+            "Identify whether the subject is a COMPANY (all its sites) or a single "
+            "SITE, and extract any timeline the user gave (convert to YYYY-MM-DD "
+            "from/to dates). If neither company nor site is named, ask which one.",
+            "Call generate_air_quality_report with target_type, name, and the "
+            "optional from_date/to_date. It gathers PM2.5/PM10 history, alerts and "
+            "fines, assesses readings against QCVN 05:2013 and WHO limits, and "
+            "renders the PDF.",
+            "Relay the returned report_url to the user as a clickable download link, "
+            "and briefly summarize the headline figures (sites covered, alerts, "
+            "fines) from the tool result.",
+        ],
+    ),
+    Skill(
         name="Company sector classification",
         when_to_use=(
             "The regulator wants to research what a company does and allocate/assign "

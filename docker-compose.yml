@@ -114,6 +114,7 @@ services:
       - ./postgresql/query/compliance_cycles_initialization.sql:/docker-entrypoint-initdb.d/12_compliance_cycles_initialization.sql
       - ./postgresql/query/carbon_allocations_seed.sql:/docker-entrypoint-initdb.d/13_carbon_allocations_seed.sql
       - ./postgresql/query/fines_initialization.sql:/docker-entrypoint-initdb.d/14_fines_initialization.sql
+      - ./postgresql/query/chat_initialization.sql:/docker-entrypoint-initdb.d/15_chat_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
@@ -193,6 +194,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       # --- LLM provider (configurable; switch to bedrock on the AWS migration) ---
       - LLM_PROVIDER=litellm
@@ -215,6 +218,14 @@ services:
       # Telegram bot push endpoint + its NOTIFY_SECRET (must match below).
       - TELEGRAM_NOTIFY_URL=http://telegram-bot:5002/notify
       - TELEGRAM_NOTIFY_SECRET=${NOTIFY_SECRET:-}
+      # Public URL the browser uses to download generated PDF reports (matches the
+      # host-exposed port and the frontend's NEXT_PUBLIC_AI_AGENT_URL).
+      - AGENT_PUBLIC_URL=http://localhost:5001
+      # MinIO (S3) — where generated PDF reports are stored.
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_REPORTS_BUCKET=reports
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -318,6 +329,7 @@ services:
       /bin/sh -c "
       /usr/bin/mc alias set dockerminio http://minio:9000 minioadmin minioadmin123;
       /usr/bin/mc mb dockerminio/influx-backups;
+      /usr/bin/mc mb dockerminio/reports;
       exit 0;
       "
 

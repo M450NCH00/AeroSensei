@@ -86,6 +86,12 @@ def _run_assign_sector(args: dict, token: str) -> Any:
     return {"assigned": True, "companyId": company_id, "sectorId": sector_id}
 
 
+def _run_generate_report(args: dict, token: str) -> Any:
+    # Imported lazily: reporting imports this module, so a top-level import would cycle.
+    import reporting
+    return reporting.generate_report(args, token)
+
+
 # --- Tool definitions (all read-only GETs) ---
 TOOLS: list[Tool] = [
     Tool(
@@ -264,6 +270,34 @@ TOOLS: list[Tool] = [
         run=_run_fetch_url,
     ),
     Tool(
+        name="generate_air_quality_report",
+        description=(
+            "Generate a comprehensive PDF air-quality & compliance report for a "
+            "COMPANY (all its sites) or a single SITE, over an optional date range. "
+            "The report includes per-site PM2.5/PM10 averages assessed against "
+            "Vietnam's QCVN 05:2013 limits and WHO guidelines, breach alerts, and "
+            "fines, with an AI-written executive summary. Use when the user asks for "
+            "a report/PDF about a "
+            "company or site. Returns a download URL — give that link to the user. "
+            "Dates are 'YYYY-MM-DD'; omit them to cover all available data."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "target_type": {
+                    "type": "string",
+                    "enum": ["company", "site"],
+                    "description": "Whether 'name' is a company or a single site.",
+                },
+                "name": {"type": "string", "description": "The company or site name to report on."},
+                "from_date": {"type": "string", "description": "Start date YYYY-MM-DD (optional)."},
+                "to_date": {"type": "string", "description": "End date YYYY-MM-DD (optional)."},
+            },
+            "required": ["target_type", "name"],
+        },
+        run=_run_generate_report,
+    ),
+    Tool(
         name="assign_company_sector",
         description=(
             "Assign (allocate) a company to an industry sector. This WRITES to the "
@@ -323,3 +357,7 @@ def execute_tool(name: str, arguments: dict, token: str) -> str:
         return json.dumps({"error": f"Invalid arguments for {name}: {e}"})
     except requests.RequestException as e:
         return json.dumps({"error": f"Could not reach service for {name}: {e}"})
+    except Exception as e:
+        # Catch-all so a tool error (e.g. report target not found) is relayed to the
+        # model as a result rather than crashing the agent turn.
+        return json.dumps({"error": f"{name} failed: {e}"})
