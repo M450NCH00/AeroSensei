@@ -199,6 +199,30 @@ TOOLS: list[Tool] = [
         },
         build=lambda a: ("/api/sensors/search", {"location": a["location"]}),
     ),
+    Tool(
+        name="list_alerts",
+        description=(
+            "List all PM-breach alerts across the platform (regulator-wide). Each "
+            "alert is scoped to a company SITE and includes the site, owning "
+            "company, pm_type (pm2.5/pm10), measured vs threshold value, level "
+            "(WARNING or BREACHED), when it triggered, and whether a fine was "
+            "already issued. Use for questions about which sites breached air-"
+            "quality limits or which breaches are still un-fined."
+        ),
+        parameters={"type": "object", "properties": {}},
+        build=lambda a: ("/api/alerts", {}),
+    ),
+    Tool(
+        name="list_fines",
+        description=(
+            "List all fines issued against PM-breach alerts (regulator-wide). Each "
+            "fine includes the offending site and company, amount, reason, status "
+            "(issued/paid/cancelled), who issued it, and when. Use for questions "
+            "about penalties, who has been fined, or total fines."
+        ),
+        parameters={"type": "object", "properties": {}},
+        build=lambda a: ("/api/alerts/fines", {}),
+    ),
     # --- Web research + sector classification ---
     Tool(
         name="web_search",
