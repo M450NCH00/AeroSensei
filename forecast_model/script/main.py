@@ -32,8 +32,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/predict/{company_id}")
-def predict(company_id: str):
+@app.get("/predict/{site_id}")
+def predict(site_id: str):
     if InfluxDBClient is None:
         raise HTTPException(500, "influxdb_client not installed")
     if not all((INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET)):
@@ -45,13 +45,13 @@ def predict(company_id: str):
         user=PG_USER, password=PG_PASS
     )
 
-    sensor_data = fetch_company_sensor_data(
-        company_id=company_id,
+    sensor_data = fetch_site_sensor_data(
+        site_id=site_id,
         bucket=INFLUX_BUCKET, org=INFLUX_ORG,
         influx_client=client, pg_conn=conn,
     )
     if sensor_data is None:
-        raise HTTPException(404, f"no recent data for company {company_id}")
+        raise HTTPException(404, f"no recent data for site {site_id}")
 
     nearest_points = find_nearest_grid_points(
         sensor_data["latitude"], sensor_data["longitude"], n=N_NEIGHBORS + 1
@@ -74,7 +74,7 @@ def predict(company_id: str):
                 print(f"[predict] error: {e}", flush=True)
 
     return {
-        "company_id": company_id,
+        "site_id": site_id,
         "latitude":   sensor_data["latitude"],
         "longitude":  sensor_data["longitude"],
         "pm2_5":      f"{sensor_data['pm2_5']:.3f}",
