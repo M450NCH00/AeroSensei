@@ -11,8 +11,8 @@ import AuthGuard from "@/app/components/AuthGuard";
 
 interface PmAlert {
   id: number;
-  sensorId: string | null;
-  locationName: string | null;
+  siteId: number | null;
+  siteName: string | null;
   companyId: number | null;
   companyName: string | null;
   pmType: string | null;
@@ -28,8 +28,8 @@ interface PmAlert {
 interface Fine {
   id: number;
   alertId: number | null;
-  sensorId: string | null;
-  locationName: string | null;
+  siteId: number | null;
+  siteName: string | null;
   companyId: number | null;
   companyName: string | null;
   amount: number;
@@ -48,6 +48,7 @@ const fmtMoney = (v: number) =>
 export default function FinesPage() {
   const { hasRole } = useAuth();
   const isGov = hasRole("GOVERNMENT") || hasRole("ADMIN");
+  const isCompany = hasRole("COMPANY");
 
   const [activeTab, setActiveTab] = useState<"breaches" | "fines">("breaches");
   const [alerts, setAlerts] = useState<PmAlert[]>([]);
@@ -65,24 +66,28 @@ export default function FinesPage() {
   const fetchAll = async () => {
     setLoading(true);
     setError(null);
+    // Government sees all alerts/fines; a company sees only its own (scoped server-side).
+    const [alertsUrl, finesUrl] = isGov
+      ? ["/alerts", "/alerts/fines"]
+      : ["/alerts/my", "/alerts/fines/my"];
     try {
       const [a, f] = await Promise.all([
-        axiosInstance.get<PmAlert[]>("/alerts"),
-        axiosInstance.get<Fine[]>("/alerts/fines"),
+        axiosInstance.get<PmAlert[]>(alertsUrl),
+        axiosInstance.get<Fine[]>(finesUrl),
       ]);
       setAlerts(a.data || []);
       setFines(f.data || []);
     } catch (e: any) {
-      setError(e.response?.data?.message ?? "Failed to load alerts. Are you signed in as a regulator?");
+      setError(e.response?.data?.message ?? "Failed to load alerts.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (isGov) fetchAll();
+    if (isGov || isCompany) fetchAll();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isGov]);
+  }, [isGov, isCompany]);
 
   const openFineModal = (alert: PmAlert) => {
     setFineTarget(alert);
@@ -92,7 +97,7 @@ export default function FinesPage() {
       : 0;
     setFineAmount(over > 0 ? String(Math.round(over) * 100) : "1000");
     setFineReason(
-      `PM breach at ${alert.locationName ?? alert.sensorId ?? "site"}: ` +
+      `PM breach at ${alert.siteName ?? "site"}: ` +
       `${alert.pmType?.toUpperCase() ?? "PM"} measured ${alert.measuredValue ?? "?"} µg/m³ ` +
       `against a ${alert.thresholdValue ?? "?"} µg/m³ threshold (${alert.alertLevel ?? "warning"}).`
     );
@@ -123,15 +128,15 @@ export default function FinesPage() {
 
   const breachCount = useMemo(() => alerts.filter((a) => !a.fined).length, [alerts]);
 
-  if (!isGov) {
+  if (!isGov && !isCompany) {
     return (
       <AuthGuard>
         <div className="p-8 min-h-screen bg-[#F8FAFC] flex items-center justify-center">
           <div className="bg-white border border-gray-200/60 rounded-[2rem] shadow-sm p-10 text-center max-w-md">
             <ShieldAlert size={32} className="text-[#F28C28] mx-auto mb-3" />
-            <p className="text-sm font-bold text-gray-600">Regulator access only</p>
+            <p className="text-sm font-bold text-gray-600">Access restricted</p>
             <p className="text-xs text-gray-400 font-semibold mt-1">
-              This page is restricted to government accounts.
+              This page is available to regulators and registered companies.
             </p>
           </div>
         </div>
@@ -140,7 +145,7 @@ export default function FinesPage() {
   }
 
   const levelStyle = (level: string | null) =>
-    (level ?? "").toLowerCase() === "critical"
+    (level ?? "").toUpperCase() === "BREACHED"
       ? "bg-red-50 text-red-600 border-red-100"
       : "bg-amber-50 text-amber-600 border-amber-100";
 
@@ -161,10 +166,10 @@ export default function FinesPage() {
           <div>
             <h1 className="text-2xl font-black text-[#005A8C] tracking-tight flex items-center gap-2">
               <Gavel size={22} className="text-[#009B9E]" />
-              Enforcement &amp; Fines
+              {isGov ? "Enforcement & Fines" : "My Alerts & Fines"}
             </h1>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
-              PM Breach Alerts &amp; Penalties
+              {isGov ? "PM Breach Alerts & Penalties" : "Your Sites' PM Breaches & Penalties"}
             </p>
           </div>
           {loading && <Loader2 size={18} className="text-gray-300 animate-spin" />}
@@ -216,7 +221,7 @@ export default function FinesPage() {
           loading ? (
             <Skeleton text="Loading breach alerts..." />
           ) : alerts.length === 0 ? (
-            <Empty icon={CheckCircle2} title="No PM breaches recorded." subtitle="Alerts appear here when a sensor's average exceeds its threshold." />
+            <Empty icon={CheckCircle2} title="No PM breaches recorded." subtitle={isGov ? "Alerts appear here when a site's average exceeds its threshold." : "Good news — none of your sites have breached their PM thresholds."} />
           ) : (
             <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
               <div className="px-5 py-3 grid grid-cols-12 gap-2 border-b border-gray-100">
@@ -225,7 +230,7 @@ export default function FinesPage() {
                 <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Measured / Threshold</span>
                 <span className="col-span-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Level</span>
                 <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Triggered</span>
-                <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Action</span>
+                <span className="col-span-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">{isGov ? "Action" : "Status"}</span>
               </div>
               <div className="divide-y divide-gray-50">
                 {alerts.map((a) => (
@@ -233,7 +238,7 @@ export default function FinesPage() {
                     <div className="col-span-3 min-w-0">
                       <p className="text-sm font-black text-gray-800 truncate flex items-center gap-1.5">
                         <MapPin size={13} className="text-[#009B9E] shrink-0" />
-                        {a.locationName ?? a.sensorId ?? "Unknown site"}
+                        {a.siteName ?? "Unknown site"}
                       </p>
                       <p className="text-[11px] font-semibold text-gray-400 truncate flex items-center gap-1 mt-0.5">
                         <Building2 size={11} className="shrink-0" />
@@ -257,13 +262,17 @@ export default function FinesPage() {
                         <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-full flex items-center gap-1">
                           <CheckCircle2 size={12} /> Fined
                         </span>
-                      ) : (
+                      ) : isGov ? (
                         <button
                           onClick={() => openFineModal(a)}
                           className="flex items-center gap-1.5 px-4 py-2 bg-[#F28C28] text-white text-xs font-bold rounded-xl hover:bg-[#d97818] transition-all shadow-sm cursor-pointer"
                         >
                           <Gavel size={13} /> Impose Fine
                         </button>
+                      ) : (
+                        <span className="text-[10px] font-extrabold text-gray-400 bg-gray-50 border border-gray-100 px-3 py-1.5 rounded-full">
+                          No fine
+                        </span>
                       )}
                     </div>
                   </div>
@@ -278,7 +287,7 @@ export default function FinesPage() {
           loading ? (
             <Skeleton text="Loading fines..." />
           ) : fines.length === 0 ? (
-            <Empty icon={Receipt} title="No fines issued yet." subtitle="Impose a fine from the Breach Alerts tab." />
+            <Empty icon={Receipt} title="No fines issued yet." subtitle={isGov ? "Impose a fine from the Breach Alerts tab." : "No fines have been issued against your company."} />
           ) : (
             <div className="bg-white border border-gray-200/60 rounded-[2rem] overflow-hidden shadow-sm">
               <div className="px-5 py-3 grid grid-cols-12 gap-2 border-b border-gray-100">
@@ -292,9 +301,13 @@ export default function FinesPage() {
                 {fines.map((f) => (
                   <div key={f.id} className="px-5 py-4 grid grid-cols-12 gap-2 items-center hover:bg-gray-50/50 transition-colors">
                     <div className="col-span-3 min-w-0">
-                      <p className="text-sm font-black text-gray-800 truncate">{f.companyName ?? "Unassigned company"}</p>
+                      <p className="text-sm font-black text-gray-800 truncate flex items-center gap-1.5">
+                        <MapPin size={13} className="text-[#009B9E] shrink-0" />
+                        {f.siteName ?? "Unknown site"}
+                      </p>
                       <p className="text-[11px] font-semibold text-gray-400 truncate flex items-center gap-1 mt-0.5">
-                        <MapPin size={11} className="shrink-0" />{f.locationName ?? f.sensorId ?? "—"}
+                        <Building2 size={11} className="shrink-0" />
+                        {f.companyName ?? "Unassigned company"}
                       </p>
                     </div>
                     <span className="col-span-2 text-sm font-black text-[#005A8C] text-right">{fmtMoney(Number(f.amount))}</span>
@@ -329,7 +342,7 @@ export default function FinesPage() {
                 <div>
                   <h2 className="font-black text-base text-[#005A8C]">Impose Fine</h2>
                   <p className="text-[11px] font-semibold text-gray-400">
-                    {fineTarget.companyName ?? "Unassigned company"} · {fineTarget.locationName ?? fineTarget.sensorId}
+                    {fineTarget.companyName ?? "Unassigned company"} · {fineTarget.siteName ?? "site"}
                   </p>
                 </div>
               </div>

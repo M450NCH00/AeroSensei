@@ -38,6 +38,20 @@ public class AlertController {
         return ResponseEntity.ok(alertService.listFines());
     }
 
+    /** GET /api/alerts/my — breach alerts for the authenticated company's own sites. */
+    @GetMapping("/my")
+    @PreAuthorize("hasAnyRole('COMPANY','GOVERNMENT','ADMIN')")
+    public ResponseEntity<List<PmAlertResponse>> myAlerts(@AuthenticationPrincipal String email) {
+        return ResponseEntity.ok(alertService.listAlertsForCompany(email));
+    }
+
+    /** GET /api/alerts/fines/my — fines issued against the authenticated company. */
+    @GetMapping("/fines/my")
+    @PreAuthorize("hasAnyRole('COMPANY','GOVERNMENT','ADMIN')")
+    public ResponseEntity<List<FineResponse>> myFines(@AuthenticationPrincipal String email) {
+        return ResponseEntity.ok(alertService.listFinesForCompany(email));
+    }
+
     /** POST /api/alerts/{alertId}/fine — impose a fine against a breach alert. */
     @PostMapping("/{alertId}/fine")
     public ResponseEntity<?> imposeFine(@PathVariable Long alertId,

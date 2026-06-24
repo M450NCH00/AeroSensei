@@ -1,10 +1,10 @@
 -- Fines issued by the government against PM-breach alerts.
--- A fine is raised from a pm_alerts row; we denormalize sensor_id + company_id so
+-- A fine is raised from a pm_alerts row; we denormalize site_id + company_id so
 -- the fine survives even if the originating alert is later cleaned up.
 CREATE TABLE IF NOT EXISTS fines (
     id SERIAL PRIMARY KEY,
     alert_id INTEGER REFERENCES pm_alerts(id) ON DELETE SET NULL,
-    sensor_id VARCHAR(50) REFERENCES sensor_registry(sensor_id) ON DELETE SET NULL,
+    site_id INTEGER REFERENCES company_sites(id) ON DELETE SET NULL,
     company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
     amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
     reason TEXT,

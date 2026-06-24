@@ -5,7 +5,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * A monetary penalty the government imposes against a PM-breach alert. sensor_id
+ * A monetary penalty the government imposes against a PM-breach alert. site_id
  * and company_id are denormalized from the originating alert so the fine remains
  * meaningful even if the alert row is later removed.
  */
@@ -20,8 +20,8 @@ public class Fine {
     @Column(name = "alert_id")
     private Long alertId;
 
-    @Column(name = "sensor_id", length = 50)
-    private String sensorId;
+    @Column(name = "site_id")
+    private Long siteId;
 
     @Column(name = "company_id")
     private Long companyId;
@@ -47,8 +47,8 @@ public class Fine {
     public Long getAlertId() { return alertId; }
     public void setAlertId(Long alertId) { this.alertId = alertId; }
 
-    public String getSensorId() { return sensorId; }
-    public void setSensorId(String sensorId) { this.sensorId = sensorId; }
+    public Long getSiteId() { return siteId; }
+    public void setSiteId(Long siteId) { this.siteId = siteId; }
 
     public Long getCompanyId() { return companyId; }
     public void setCompanyId(Long companyId) { this.companyId = companyId; }
