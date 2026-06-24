@@ -5,8 +5,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * A PM-threshold breach recorded in the pm_alerts table (written by the backend
- * when an average reading exceeds its threshold). Read-only from the app's POV.
+ * A PM-threshold breach recorded in the pm_alerts table, scoped to a company
+ * SITE (written by the backend when a site's aggregated reading exceeds its
+ * threshold). Read-only from the app's POV.
  */
 @Entity
 @Table(name = "pm_alerts")
@@ -16,8 +17,8 @@ public class PmAlert {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "sensor_id", length = 50)
-    private String sensorId;
+    @Column(name = "site_id")
+    private Long siteId;
 
     @Column(name = "pm_type", length = 10)
     private String pmType;
@@ -43,8 +44,8 @@ public class PmAlert {
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
-    public String getSensorId() { return sensorId; }
-    public void setSensorId(String sensorId) { this.sensorId = sensorId; }
+    public Long getSiteId() { return siteId; }
+    public void setSiteId(Long siteId) { this.siteId = siteId; }
 
     public String getPmType() { return pmType; }
     public void setPmType(String pmType) { this.pmType = pmType; }
