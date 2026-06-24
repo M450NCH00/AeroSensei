@@ -4,17 +4,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import axiosInstance from "../api/axiosInstance";
-
-interface SensorReadingsDTO {
-  sensorId: string;
-  locationName: string;
-  avgPm25: number;
-  avgPm10: number;
-  maxPm25: number;
-  maxPm10: number;
-  state: "SAFE" | "WARNING" | "BREACHED";
-  breachType: "NONE" | "PM2_5" | "PM10" | "MULTIPLE";
-}
+import { SiteSensor15MinDTO } from "./SitesDataManager";
 
 const getStateColor = (state: "SAFE" | "WARNING" | "BREACHED") => {
   switch (state) {
@@ -32,7 +22,8 @@ const formatBreachType = (type: string) => {
 };
 
 export default function CriticalNodesList() {
-  const [criticalSites, setCriticalSites] = useState<SensorReadingsDTO[]>([]);
+  // 2. Update state to use new DTO
+  const [criticalSites, setCriticalSites] = useState<SiteSensor15MinDTO[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
   // Sync tracking states
@@ -43,7 +34,8 @@ export default function CriticalNodesList() {
   const fetchCriticalNodes = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await axiosInstance.get<SensorReadingsDTO[]>("/sensors/area/5/critical");
+      // 3. Update the generic type for the axios call
+      const response = await axiosInstance.get<SiteSensor15MinDTO[]>("/sensors/area/5/critical");
       setCriticalSites(response.data);
       setLastSync(new Date());
     } catch (error) {
@@ -108,13 +100,20 @@ export default function CriticalNodesList() {
             No critical sites available. All nodes operating safely.
           </div>
         ) : (
-          criticalSites.map((site) => (
-            <div key={site.sensorId} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex flex-col gap-2 hover:border-gray-300 transition-colors">
+          criticalSites.map((site, index) => (
+            // 4. Using a composite key since sensorId is gone (adding index fallback just in case of duplicates)
+            <div key={`${site.companyName}-${site.siteName}-${index}`} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex flex-col gap-2 hover:border-gray-300 transition-colors">
               
               <div className="flex justify-between items-start">
-                <span className="font-bold text-sm text-gray-800 truncate max-w-[170px]">
-                  {site.locationName || `Node ${site.sensorId}`}
-                </span>
+                <div className="flex flex-col">
+                  {/* 5. Using siteName and companyName instead of locationName */}
+                  <span className="font-bold text-sm text-gray-800 truncate max-w-[170px]">
+                    {site.siteName || "Unknown Node"}
+                  </span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 truncate max-w-[170px]">
+                    {site.companyName || "Unknown Company"}
+                  </span>
+                </div>
                 <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md border ${getStateColor(site.state)} tracking-wider`}>
                   {site.state}
                 </span>

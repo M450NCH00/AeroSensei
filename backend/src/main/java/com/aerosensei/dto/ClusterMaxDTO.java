@@ -15,7 +15,7 @@ public class ClusterMaxDTO implements Serializable {
     private Double maxPeakPm10;
     private PMBreachType breachType;
     private SiteState state;
-    private int sensorCount; // Tells frontend how many sensors were merged here!
+    private int siteCount; // Tells frontend how many sensors were merged here!
 
     // Constructors, Getters, and Setters
     public ClusterMaxDTO() {};
@@ -44,6 +44,6 @@ public class ClusterMaxDTO implements Serializable {
     public SiteState getState() { return state; }
     public void setState(SiteState state) { this.state = state; }
 
-    public int getSensorCount() { return sensorCount; }
-    public void setSensorCount(int sensorCount) { this.sensorCount = sensorCount; }
+    public int getSiteCount() { return siteCount; }
+    public void setSiteCount(int siteCount) { this.siteCount = siteCount; }
 }
