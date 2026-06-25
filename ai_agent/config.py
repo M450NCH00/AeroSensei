@@ -73,6 +73,16 @@ TELEGRAM_NOTIFY_URL = os.getenv("TELEGRAM_NOTIFY_URL", "http://telegram-bot:5002
 TELEGRAM_NOTIFY_SECRET = os.getenv("TELEGRAM_NOTIFY_SECRET", "").strip()
 TELEGRAM_NOTIFY_TIMEOUT = float(os.getenv("TELEGRAM_NOTIFY_TIMEOUT", "15"))
 
+# --- PDF report generation ---
+# Generated PDFs are stored in MinIO (S3) and streamed back via GET /reports/<file>.
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
+MINIO_REPORTS_BUCKET = os.getenv("MINIO_REPORTS_BUCKET", "reports")
+# Public base URL of this agent, used to build absolute download links the
+# browser can open. Matches the frontend's NEXT_PUBLIC_AI_AGENT_URL.
+AGENT_PUBLIC_URL = os.getenv("AGENT_PUBLIC_URL", "http://localhost:5001").rstrip("/")
+
 
 def get_provider():
     """Instantiate the configured LLM provider (single source of truth)."""
