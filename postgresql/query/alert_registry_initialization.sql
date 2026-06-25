@@ -8,27 +8,17 @@ CREATE TABLE IF NOT EXISTS pm_alerts (
     measured_value NUMERIC(10,2) NOT NULL,
     threshold_value NUMERIC(10,2) NOT NULL,
     alert_level VARCHAR(20) NOT NULL CHECK (alert_level IN ('BREACHED', 'WARNING')),
+    -- The calendar day the breach/warning is FOR — i.e. the day whose readings the
+    -- daily PM evaluator averaged. triggered_at is when the row was written; this is
+    -- which day it concerns (they differ if the evaluator runs after midnight).
+    alert_date DATE NOT NULL DEFAULT CURRENT_DATE,
     triggered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     resolved_at TIMESTAMP,
     note TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_pm_alerts_site_id ON pm_alerts(site_id);
+-- Keep existing databases in sync (init scripts only run on a fresh data dir).
+ALTER TABLE pm_alerts ADD COLUMN IF NOT EXISTS alert_date DATE NOT NULL DEFAULT CURRENT_DATE;
 
--- Mock breaches for testing the enforcement/fine feature. Sites are resolved by
--- name (seeded in company_site_initialization.sql, which runs first).
-INSERT INTO pm_alerts (site_id, pm_type, measured_value, threshold_value, alert_level, triggered_at, note)
-VALUES
-    ((SELECT id FROM company_sites WHERE site_name = 'Dung Quat Steel Complex'),
-        'pm2.5', 96.40, 35.00, 'BREACHED', NOW() - INTERVAL '30 minutes', 'Sustained spike from sinter plant stack'),
-    ((SELECT id FROM company_sites WHERE site_name = 'Hai Duong Iron Complex'),
-        'pm10', 148.20, 50.00, 'BREACHED', NOW() - INTERVAL '3 hours', 'Heavy particulate during blast furnace tapping'),
-    ((SELECT id FROM company_sites WHERE site_name = 'Dinh Co Gas Plant'),
-        'pm2.5', 47.10, 35.00, 'WARNING', NOW() - INTERVAL '8 hours', 'Elevated readings near flare unit'),
-    ((SELECT id FROM company_sites WHERE site_name = 'Hai Phong Manufacturing Plant'),
-        'pm10', 63.80, 50.00, 'WARNING', NOW() - INTERVAL '1 day', 'Paint-shop extraction above limit'),
-    ((SELECT id FROM company_sites WHERE site_name = 'Masan Thai Nguyen Plant'),
-        'pm2.5', 112.50, 35.00, 'BREACHED', NOW() - INTERVAL '2 days', 'Boiler particulate breach, multiple sensors'),
-    ((SELECT id FROM company_sites WHERE site_name = 'Vietnam Mega Factory'),
-        'pm10', 51.30, 50.00, 'WARNING', NOW() - INTERVAL '5 days', 'Intermittent breach, dust from logistics yard')
-ON CONFLICT DO NOTHING;
+CREATE INDEX IF NOT EXISTS idx_pm_alerts_site_id ON pm_alerts(site_id);
+CREATE INDEX IF NOT EXISTS idx_pm_alerts_alert_date ON pm_alerts(alert_date);

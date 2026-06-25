@@ -1,5 +1,7 @@
 package com.aerosensei.service;
 
+import com.aerosensei.entity.CompanySite;
+import com.aerosensei.repository.CompanySiteRepository;
 import com.aerosensei.repository.SensorRegistryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,6 +28,9 @@ public class SlidingWindowService {
 
     @Autowired
     private SensorRegistryRepository sensorRegistryRepository;
+
+    @Autowired
+    private CompanySiteRepository companySiteRepository;
 
     // --- NEW CONFIGURATION FIELDS ---
     @Value("${agent.api.url}")
@@ -178,9 +183,16 @@ public class SlidingWindowService {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Internal-Secret", internalApiSecret);
 
+        // Resolve the human-readable site name so the Telegram alert reads
+        // "Site VPBank ..." instead of "SITE-1". Falls back to the id if unknown.
+        String siteName = companySiteRepository.findById(siteId)
+                .map(CompanySite::getSiteName)
+                .orElse("SITE-" + siteId);
+
         // 2. Build the Payload Object
         AgentAlertPayload payload = new AgentAlertPayload(
                 "SITE-" + siteId,
+                siteName,
                 pmType,
                 Math.round(measuredValue * 100.0) / 100.0, // Rounds to 2 decimal places
                 threshold,
@@ -199,6 +211,7 @@ public class SlidingWindowService {
     // A simple record to automatically format the JSON payload for the Python agent
     public record AgentAlertPayload(
             String sensor_id,
+            String site_name,
             String pm_type,
             double measured_value,
             double threshold_value,

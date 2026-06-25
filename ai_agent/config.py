@@ -42,6 +42,10 @@ BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20
 # Max LLM<->tool round trips before we force a final answer.
 MAX_TOOL_ITERATIONS = int(os.getenv("LLM_MAX_TOOL_ITERATIONS", "5"))
 
+# Max round trips for the ISOLATED company researcher (research_agent.py). Kept
+# small: its only job is to read a few pages and emit a structured summary.
+RESEARCH_MAX_ITERATIONS = int(os.getenv("RESEARCH_MAX_ITERATIONS", "4"))
+
 # --- Backend (tool execution target) ---
 # The agent calls the Spring Boot backend's existing endpoints; the backend owns
 # all auth, role checks, and business logic over Postgres + InfluxDB.
@@ -67,6 +71,12 @@ ALLOWED_ROLES = {r.upper() for r in _split(os.getenv("AGENT_ALLOWED_ROLES", "ADM
 # alert. Empty = the endpoint is disabled (fail closed) so it can't be abused.
 INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "").strip()
 
+# Whether the Telegram PM alert is phrased by the LLM. OFF by default: the alert is
+# built from structured fields (site, pm type, measured vs threshold, level), so the
+# deterministic template is instant, free, and can't be delayed or mangled by the
+# model. Set ALERT_USE_LLM=true to let the LLM rephrase it (same template as fallback).
+ALERT_USE_LLM = os.getenv("ALERT_USE_LLM", "false").strip().lower() in ("1", "true", "yes", "on")
+
 # Telegram bot's internal push endpoint and its shared secret (NOTIFY_SECRET on
 # the bot side). The agent POSTs the composed alert here to broadcast it.
 TELEGRAM_NOTIFY_URL = os.getenv("TELEGRAM_NOTIFY_URL", "http://telegram-bot:5002/notify").rstrip("/")
@@ -82,6 +92,33 @@ MINIO_REPORTS_BUCKET = os.getenv("MINIO_REPORTS_BUCKET", "reports")
 # Public base URL of this agent, used to build absolute download links the
 # browser can open. Matches the frontend's NEXT_PUBLIC_AI_AGENT_URL.
 AGENT_PUBLIC_URL = os.getenv("AGENT_PUBLIC_URL", "http://localhost:5001").rstrip("/")
+
+# --- Autonomous enforcement (agent auto-issues fines for BREACHED alerts) ---
+# Auto-fining is a consequential WRITE with no human in the loop, so it is OFF by
+# default and must be explicitly enabled. When on, the nightly PM check (or any
+# internal caller of POST /enforce) makes the agent fine every BREACHED, un-fined
+# alert.
+ENFORCEMENT_AUTO_FINE = os.getenv("ENFORCEMENT_AUTO_FINE", "false").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+
+# Identity the agent assumes when issuing fines autonomously. It mints a
+# short-lived JWT with this subject/role from the shared JWT_SECRET; the backend
+# records it as the fine's issued_by, so the audit trail shows the AI agent acted.
+# The role MUST satisfy the backend's hasAnyRole('GOVERNMENT','ADMIN') on the fine
+# endpoint.
+ENFORCEMENT_SYSTEM_EMAIL = os.getenv("ENFORCEMENT_SYSTEM_EMAIL", "ai-agent@aerosensei.system")
+ENFORCEMENT_ROLE = os.getenv("ENFORCEMENT_ROLE", "GOVERNMENT").upper()
+ENFORCEMENT_TOKEN_TTL = int(os.getenv("ENFORCEMENT_TOKEN_TTL", "300"))  # seconds
+
+# Fine schedule (VND). The amount is DETERMINISTIC — derived from how far the 24h
+# average exceeded the QCVN limit, not chosen by the LLM — so penalties stay
+# predictable and defensible. amount = BASE + over * PER_RATIO, capped at MAX and
+# rounded to ROUND, where over = measured/threshold - 1 (>= 0).
+FINE_BASE_AMOUNT = float(os.getenv("FINE_BASE_AMOUNT", "10000000"))
+FINE_PER_RATIO = float(os.getenv("FINE_PER_RATIO", "50000000"))
+FINE_MAX_AMOUNT = float(os.getenv("FINE_MAX_AMOUNT", "100000000"))
+FINE_ROUND = float(os.getenv("FINE_ROUND", "100000"))
 
 
 def get_provider():

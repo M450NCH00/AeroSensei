@@ -26,10 +26,12 @@ Spring Boot backend  ──►  Postgres + InfluxDB   (forwards the SAME cookie)
 
 | File | Role |
 |------|------|
-| `app.py` | Flask routes (`/health`, `/ask`), auth gate |
-| `auth.py` | Extract accessToken cookie, verify JWT (HS256), require ADMIN |
-| `agent.py` | The tool-calling loop |
-| `tools.py` | Tool wrappers: backend GETs, web research, and the sector-assign write |
+| `app.py` | Flask routes (`/health`, `/ask`, `/classify/preview`, internal `/alert` + `/enforce`), auth gate |
+| `auth.py` | Verify JWT (HS256) + role; mint a system token for autonomous enforcement |
+| `agent.py` | The main (write-capable) tool-calling loop |
+| `tools.py` | Tool wrappers: backend GETs, the `research_company` delegate, and the writes (sector-assign, issue-fine) |
+| `research_agent.py` | **Isolated** company researcher: ingests untrusted web text in its own write-free context, returns a structured summary |
+| `enforcement.py` | Autonomous sweep: auto-issue fines for BREACHED, un-fined alerts |
 | `research.py` | Open-web search + page fetch (key-free) with an SSRF guard |
 | `skills.py` | Task playbooks that chain tools (rendered into the system prompt) |
 | `providers/` | Pluggable LLM backends (`ollama_provider`, `bedrock_provider` stub) |
@@ -54,19 +56,25 @@ Spring Boot backend  ──►  Postgres + InfluxDB   (forwards the SAME cookie)
 ## Company research & sector classification
 
 The agent can research what a company does on the open web and allocate it to an
-industry sector:
+industry sector — but the untrusted-web step is **quarantined** from the
+write-capable agent:
 
-- `web_search` / `fetch_company_page` — key-free DuckDuckGo search + page-text
-  extraction (`research.py`). Fetched URLs are validated against private/
-  loopback/link-local ranges (SSRF guard), and the system prompt instructs the
-  model to treat fetched content as untrusted reference material, never
-  instructions (prompt-injection defence).
-- `assign_company_sector` — the only **write** tool; `PATCH /api/sectors/companies/{id}`
-  with `{sectorId}`. The backend re-checks the caller's ADMIN/GOVERNMENT role on
-  the forwarded cookie.
+- `research_company` — the only web-facing tool the main agent sees. It delegates
+  to an **isolated researcher** (`research_agent.py`) that runs in its own context
+  with *only* `web_search` / `fetch_company_page` (key-free DuckDuckGo + page-text
+  extraction, SSRF-guarded in `research.py`) and **no token and no write tools**.
+  The researcher returns a fixed-shape, length-capped JSON summary
+  (`business_activity`, `industry`, `products`, `suggested_sector`,
+  `evidence_urls`, `confidence`, `notes`). The main agent never sees raw page text,
+  so a prompt injection on a company's page can't reach a write — it's a structural
+  boundary, not just a prompt instruction.
+- `assign_company_sector` — a **write** tool; `PATCH /api/sectors/companies/{id}`
+  with `{sectorId}`. The backend re-checks the caller's ADMIN/GOVERNMENT role on the
+  forwarded cookie. (The agent also has `issue_fine`; see *Autonomous enforcement*.)
 
 The *Company sector classification* skill chains these: `list_companies` +
-`list_sectors` → research → pick the best-matching sector → assign. Example:
+`list_sectors` → `research_company` → verify + pick the best-matching sector →
+assign. Example:
 
 ```bash
 curl -X POST http://localhost:5001/ask \

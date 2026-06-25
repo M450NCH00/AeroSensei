@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Plus, MessageSquare, Trash2, Loader2 } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Loader2, PanelLeftOpen, PanelLeftClose } from "lucide-react";
 import axiosInstance from "../../api/axiosInstance";
 import AIPromptCards from "../../components/AIPromptCards";
 import AIChatMessage from "../../components/AIChatMessage";
@@ -35,6 +35,9 @@ export default function AIAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [loadingConvos, setLoadingConvos] = useState(true);
+  // History panel starts collapsed each time the tab is opened so it doesn't
+  // squeeze the chat; the user can expand it from the header toggle.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -144,9 +147,19 @@ export default function AIAssistantPage() {
   return (
     <div className="h-screen flex bg-[#F8FAFC]">
 
-      {/* Conversation sidebar */}
-      <aside className="w-72 flex-shrink-0 bg-white border-r border-gray-200/60 flex flex-col hidden lg:flex">
-        <div className="p-4 border-b border-gray-100">
+      {/* Conversation sidebar (collapsible — hidden by default so it doesn't squeeze the chat) */}
+      <aside className={`w-72 flex-shrink-0 bg-white border-r border-gray-200/60 flex-col ${sidebarOpen ? "flex" : "hidden"}`}>
+        <div className="p-4 border-b border-gray-100 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">History</span>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              title="Collapse history"
+              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-[#005A8C] transition-colors cursor-pointer"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          </div>
           <button
             onClick={startNewChat}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#005A8C] text-white text-sm font-bold rounded-xl hover:bg-[#004a73] transition-all cursor-pointer"
@@ -184,9 +197,20 @@ export default function AIAssistantPage() {
       {/* Main conversation column */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="flex-shrink-0 bg-white p-6 border-b border-gray-200/60 flex justify-between items-center z-10 shadow-2xs">
-          <div>
-            <h1 className="text-xl font-black text-[#005A8C] tracking-tight">AI Diagnostic Space</h1>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Predictive Language Assistant Modeling</p>
+          <div className="flex items-center gap-3">
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                title="Show chat history"
+                className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 hover:text-[#005A8C] transition-colors cursor-pointer"
+              >
+                <PanelLeftOpen size={18} />
+              </button>
+            )}
+            <div>
+              <h1 className="text-xl font-black text-[#005A8C] tracking-tight">AI Diagnostic Space</h1>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Predictive Language Assistant Modeling</p>
+            </div>
           </div>
         </header>
 

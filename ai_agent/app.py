@@ -94,6 +94,7 @@ def alert():
     Body (JSON) — mirrors the pm_alerts table:
       id               (optional)  the row id
       sensor_id        (optional, string)
+      site_name        (optional, string)  human-readable site, e.g. 'VPBank'
       pm_type          (optional, string)  'pm2.5' | 'pm10'
       measured_value   (required, number)  the breaching reading
       threshold_value  (optional, number)
@@ -147,6 +148,102 @@ def alert():
 
     sent = (resp.json() or {}).get("sent")
     return jsonify({"status": "sent", "recipients": sent, "message": message}), 200
+
+
+def _match_sector(summary: dict, sectors: list) -> tuple:
+    """Best-effort map of the researcher's free-text suggestion to a real sector id.
+
+    Returns (sectorId, sectorName) or (None, "") when nothing matches — the human
+    picks/overrides in the UI either way.
+    """
+    candidates = [summary.get("suggested_sector") or "", summary.get("industry") or ""]
+    names = [(s.get("id"), str(s.get("name") or "")) for s in (sectors or [])]
+    norm = [(sid, name, name.lower()) for sid, name in names if name]
+    # 1. exact, then 2. substring either direction, then 3. token overlap.
+    for cand in candidates:
+        cl = cand.strip().lower()
+        if not cl:
+            continue
+        for sid, name, nl in norm:
+            if nl == cl:
+                return sid, name
+    for cand in candidates:
+        cl = cand.strip().lower()
+        if not cl:
+            continue
+        for sid, name, nl in norm:
+            if cl in nl or nl in cl:
+                return sid, name
+    for cand in candidates:
+        ctoks = {t for t in cand.lower().split() if len(t) > 2}
+        for sid, name, nl in norm:
+            if ctoks & set(nl.split()):
+                return sid, name
+    return None, ""
+
+
+@app.route("/classify/preview", methods=["POST"])
+def classify_preview():
+    """Research a company and PREVIEW a sector suggestion — without writing anything.
+
+    Powers the human-in-the-loop classification page: the regulator sees what the
+    isolated web researcher found and a suggested sector, then confirms or corrects
+    it. The actual assignment is a separate, explicit PATCH the frontend makes.
+
+    Auth: same as /ask (the caller's accessToken cookie, ADMIN/GOVERNMENT).
+    """
+    try:
+        token, _claims = authenticate(request)
+    except AuthError as e:
+        return jsonify({"error": str(e)}), e.status
+
+    data = request.get_json(silent=True) or {}
+    company_name = (data.get("companyName") or "").strip()
+    if not company_name:
+        return jsonify({"error": "Field 'companyName' is required"}), 400
+
+    try:
+        import research_agent
+        import tools
+        summary = research_agent.research_company(company_name)
+        suggested_id, suggested_name = None, ""
+        try:
+            sectors = tools._backend_get("/api/sectors", {}, token) or []
+            suggested_id, suggested_name = _match_sector(summary, sectors)
+        except Exception:
+            log.exception("sector matching failed for %s", company_name)
+        return jsonify({
+            "summary": summary,
+            "suggestedSectorId": suggested_id,
+            "suggestedSectorName": suggested_name,
+        }), 200
+    except Exception:
+        log.exception("classify preview failed for %s", company_name)
+        return jsonify({"error": "Classification preview failed."}), 500
+
+
+@app.route("/enforce", methods=["POST"])
+def enforce():
+    """Internal: autonomously fine every BREACHED, un-fined PM alert.
+
+    Called server-to-server by the backend's nightly PM-breach check after it
+    writes new pm_alerts rows. Auth mirrors /alert: the caller must present
+    X-Internal-Secret == INTERNAL_API_SECRET, and the endpoint is disabled (fail
+    closed) when that secret is unset. The actual fining is additionally gated by
+    ENFORCEMENT_AUTO_FINE, so the endpoint is safe even if reachable.
+    """
+    if not config.INTERNAL_API_SECRET:
+        return jsonify({"error": "Enforce endpoint is disabled (INTERNAL_API_SECRET not set)."}), 503
+    if request.headers.get("X-Internal-Secret") != config.INTERNAL_API_SECRET:
+        return jsonify({"error": "forbidden"}), 403
+
+    import enforcement
+    try:
+        summary = enforcement.run_auto_fine_sweep()
+    except Exception:
+        log.exception("Auto-fine enforcement sweep failed")
+        return jsonify({"error": "Enforcement sweep failed."}), 500
+    return jsonify(summary), 200
 
 
 if __name__ == "__main__":

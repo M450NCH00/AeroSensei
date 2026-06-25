@@ -12,11 +12,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -66,13 +72,45 @@ public class PmAlertSchedulerService {
     @Value("${pm.alert.warning-fraction:0.8}")
     private double warningFraction;
 
+    // --- Autonomous enforcement hand-off ---
+    // After the sweep, optionally ask the AI agent to auto-issue fines for every
+    // BREACHED, un-fined alert. Off by default — auto-fining is consequential.
+    @Value("${agent.enforce.enabled:false}")
+    private boolean autoFineEnabled;
+
+    @Value("${agent.enforce.url:http://ai-agent:5001/enforce}")
+    private String agentEnforceUrl;
+
+    // Shared internal secret (same one used for the /alert hand-off).
+    @Value("${agent.api.secret:}")
+    private String internalApiSecret;
+
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    // Vietnam local day — the calendar day a breach/warning is recorded "for".
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+
     /**
      * Runs every night at midnight (Vietnam time). Override the schedule with the
      * {@code pm.alert.cron} property (Spring 6-field cron expression).
      */
     @Scheduled(cron = "${pm.alert.cron:0 0 0 * * *}", zone = "Asia/Ho_Chi_Minh")
     public void runNightlyPmCheck() {
-        log.info("=== Nightly PM breach check starting (PM2.5 limit {} / PM10 limit {} µg/m³) ===",
+        evaluateNow();
+        // Hand off to the AI agent to autonomously fine the breaches (if enabled).
+        if (autoFineEnabled) {
+            triggerAgentAutoFine();
+        }
+    }
+
+    /**
+     * Run the PM breach/warning evaluation across all sites right now and return how
+     * many {@code pm_alerts} rows were written. Shared by the nightly job and the
+     * on-demand "evaluate now" endpoint (used to demo enforcement without waiting
+     * for midnight).
+     */
+    public int evaluateNow() {
+        log.info("=== PM breach check starting (PM2.5 limit {} / PM10 limit {} µg/m³) ===",
                 pm25Threshold, pm10Threshold);
 
         List<CompanySite> sites = companySiteRepository.findAll();
@@ -85,8 +123,28 @@ public class PmAlertSchedulerService {
                 log.error("PM check failed for site {} ({})", site.getId(), site.getSiteName(), e);
             }
         }
-        log.info("=== Nightly PM breach check finished: {} site(s) scanned, {} alert(s) written ===",
+        log.info("=== PM breach check finished: {} site(s) scanned, {} alert(s) written ===",
                 sites.size(), alertsWritten);
+        return alertsWritten;
+    }
+
+    /**
+     * Ask the AI agent to auto-issue fines for every BREACHED, un-fined alert.
+     * Fire-and-forget over the internal channel: a failure here must never break
+     * the nightly sweep, and the agent itself re-checks role and skips alerts that
+     * are already fined.
+     */
+    private void triggerAgentAutoFine() {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", internalApiSecret);
+            HttpEntity<String> request = new HttpEntity<>("{}", headers);
+            String response = restTemplate.postForObject(agentEnforceUrl, request, String.class);
+            log.info("Auto-fine enforcement triggered: {}", response);
+        } catch (Exception e) {
+            log.error("Failed to trigger agent auto-fine enforcement: {}", e.getMessage());
+        }
     }
 
     /** Averages a single site's last-24h PM readings and records any breaches. */
@@ -166,6 +224,7 @@ public class PmAlertSchedulerService {
         alert.setMeasuredValue(BigDecimal.valueOf(measured).setScale(2, RoundingMode.HALF_UP));
         alert.setThresholdValue(BigDecimal.valueOf(threshold).setScale(2, RoundingMode.HALF_UP));
         alert.setAlertLevel(level);
+        alert.setAlertDate(LocalDate.now(VN_ZONE));  // which day this breach/warning is for
         alert.setNote(String.format(
                 "Nightly 24h average %s = %.2f µg/m³ (%.0f%% of QCVN 05:2023 limit %.0f µg/m³).",
                 pmType, measured, ratio * 100.0, threshold));
