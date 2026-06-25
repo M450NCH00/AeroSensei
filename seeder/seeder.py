@@ -8,17 +8,29 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 
 # --- CONFIGURATION ---
 # InfluxDB Config
-INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
-INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "my-super-secret-auth-token")
-INFLUX_ORG = os.getenv("INFLUX_ORG", "aerosensei")
-INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "sensor_data")
+# INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
+# INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "my-super-secret-auth-token")
+# INFLUX_ORG = os.getenv("INFLUX_ORG", "aerosensei")
+# INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "sensor_data")
+INFLUX_URL = os.getenv("INFLUX_URL", "http://localhost:8086")
+INFLUX_TOKEN = os.getenv(
+    "INFLUX_TOKEN",
+    "my-super-secret-admin-token-12345"
+)
+INFLUX_ORG = os.getenv("INFLUX_ORG", "my-org")
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "sensors_data")
 
 # PostgreSQL Config
-PG_HOST = os.getenv("PG_HOST", "postgres")
+# PG_HOST = os.getenv("PG_HOST", "postgres")
+# PG_PORT = os.getenv("PG_PORT", "5432")
+# PG_DB = os.getenv("PG_DB", "aerosensei_db")
+# PG_USER = os.getenv("PG_USER", "postgres")
+# PG_PASS = os.getenv("PG_PASS", "postgres")
+PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = os.getenv("PG_PORT", "5432")
-PG_DB = os.getenv("PG_DB", "aerosensei_db")
-PG_USER = os.getenv("PG_USER", "postgres")
-PG_PASS = os.getenv("PG_PASS", "postgres")
+PG_DB = os.getenv("PG_DB", "postgresdb")
+PG_USER = os.getenv("PG_USER", "admin")
+PG_PASS = os.getenv("PG_PASS", "ChangeThisPassword123!")
 
 print("🔄 Starting Seeder Service...")
 
