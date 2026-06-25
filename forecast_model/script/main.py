@@ -79,5 +79,5 @@ def predict(site_id: str):
         "longitude":  sensor_data["longitude"],
         "pm2_5":      f"{sensor_data['pm2_5']:.3f}",
         "pm10":       f"{sensor_data['pm10']:.3f}",
-        "prediction": [f"{float(r):.3f}" for r in results] if results else None,
+        "prediction": [f"{float(r[0]):.3f}" for r in results] if results else None,
     }

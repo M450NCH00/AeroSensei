@@ -21,7 +21,7 @@ class ForecastModel:
         """
         self.pm = pm
         self.hr = hr
-        self.base = f"./forecast_model/model/air_quality_models_pm{pm}_{hr}h.joblib"
+        self.base = f"../model/air_quality_models_pm{pm}_{hr}h.joblib"
         self.model_path = os.path.abspath(self.base)
 
         if not os.path.exists(self.model_path):

@@ -321,7 +321,7 @@ def fetch_neighbour_pm_from_influx(
                   AND longitude BETWEEN %s AND %s
                   AND status = 'active'
                 """,
-                (lat - 0.15, lat + 0.15, lon - 0.15, lon + 0.15),
+                (float(lat) - 0.15, float(lat) + 0.15, float(lon) - 0.15, float(lon) + 0.15),
             )
             rows = cur.fetchall()
 

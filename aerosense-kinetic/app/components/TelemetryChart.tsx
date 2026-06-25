@@ -4,9 +4,11 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine 
 } from "recharts";
 
+// 1. Add the optional 'forecast' property to our data points
 export interface HistoryDataPoint {
   time: string;
-  value: number;
+  value?: number;    // Historical Data
+  forecast?: number; // AI Predicted Data
 }
 
 interface TelemetryChartProps {
@@ -47,18 +49,32 @@ export default function TelemetryChart({
               labelStyle={{ color: '#9CA3AF', fontSize: '12px' }}
             />
             
-            {/* The Dynamic Threshold Lines */}
             <ReferenceLine y={warningThreshold} stroke="#FBBF24" strokeDasharray="4 4" label={{ position: 'insideTopLeft', value: 'WARNING', fill: '#FBBF24', fontSize: 10, fontWeight: 800 }} />
             <ReferenceLine y={breachThreshold} stroke="#EF4444" strokeDasharray="4 4" label={{ position: 'insideTopLeft', value: 'BREACHED', fill: '#EF4444', fontSize: 10, fontWeight: 800 }} />
             
+            {/* 2. The Standard Historical Line */}
             <Line 
               type="monotone" 
               dataKey="value" 
-              name={dataKey}
+              name={`Historical ${dataKey}`}
               stroke={lineColor} 
               strokeWidth={3} 
               dot={false} 
               activeDot={{ r: 6, strokeWidth: 0 }} 
+              connectNulls
+            />
+
+            {/* 3. The New AI Forecast Line (Dashed Purple) */}
+            <Line 
+              type="monotone" 
+              dataKey="forecast" 
+              name={`AI Forecast (3H)`}
+              stroke="#8B5CF6" 
+              strokeWidth={3} 
+              strokeDasharray="6 6" 
+              dot={{ r: 4, strokeWidth: 2, fill: "white" }} 
+              activeDot={{ r: 6, strokeWidth: 0 }} 
+              connectNulls
             />
           </LineChart>
         </ResponsiveContainer>
