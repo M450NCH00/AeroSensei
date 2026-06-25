@@ -27,11 +27,11 @@
 // NOTE: backend's application.properties sets server.port=8081, while the
 // Python traffic simulator defaults to 8080 (likely a proxy/Docker mapping).
 // Set this to wherever the running backend is actually reachable.
-#define POST_ENDPOINT "http://192.168.88.8:8081/api/sensors/ingest"
+#define POST_ENDPOINT "http://192.168.88.6:8081/api/sensors/ingest"
 
 // Must match an existing id in the sensor_registry table, otherwise the
 // backend cannot attribute the reading to a sensor/site.
-#define SENSOR_ID "REPLACE-WITH-SENSOR-UUID"
+#define SENSOR_ID "test"
 
 // NTP for the ISO-8601 UTC timestamp the ingest endpoint expects
 #define NTP_SERVER "pool.ntp.org"
@@ -42,6 +42,7 @@
 #define SPS30_RX_PIN 16
 #define SPS30_TX_PIN 17
 #define SPS30_BAUD 115200
+#define POST_INTERVAL_MS 1000
 
 HardwareSerial SPS30Serial(1);
 SensirionUartSps30 sps30;
@@ -284,7 +285,7 @@ void loop()
     float nc0p5 = 0, nc1p0 = 0, nc2p5 = 0, nc4p0 = 0, nc10p0 = 0;
     float typicalParticleSize = 0;
 
-    delay(1000);
+    delay(POST_INTERVAL_MS);
 
     int16_t error = sps30.readMeasurementValuesFloat(
         mc1p0, mc2p5, mc4p0, mc10p0,
