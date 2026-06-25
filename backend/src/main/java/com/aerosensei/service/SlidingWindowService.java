@@ -153,14 +153,14 @@ public class SlidingWindowService {
         Instant lastAlertTime = lastAlertTimeMap.get(cacheKey);
 
         // COOLDOWN CHECK: Has it been at least 1 minute since the last alert for THIS specific pollutant?
-        if (lastAlertTime == null || ChronoUnit.MINUTES.between(lastAlertTime, now) >= 1) {
+        if (lastAlertTime == null || ChronoUnit.SECONDS.between(lastAlertTime, now) >= 120) {
 
             try {
-                // Send the HTTP request
-                sendPostRequestToAgent(siteId, measuredValue, threshold, pmType);
-
                 // Update the cooldown timer so THIS specific pollutant won't fire again for a minute
                 lastAlertTimeMap.put(cacheKey, now);
+
+                // Send the HTTP request
+                sendPostRequestToAgent(siteId, measuredValue, threshold, pmType);
 
                 // TODO (Optional): Insert record into pm_alerts PostgreSQL table here
 
