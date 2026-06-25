@@ -54,7 +54,7 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             @Param("userEmail") String userEmail);
 
     //use to fetch sensor by company and site name
-    @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
+    @Query(value = "SELECT c.company_name, sr.site_id, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
             "FROM sensor_registry sr " +
             "JOIN company_sites cs ON sr.site_id = cs.id " +
             "JOIN companies c ON cs.company_id = c.id " +
@@ -80,7 +80,7 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             "JOIN companies c ON cs.company_id = c.id ", nativeQuery = true)
     List<SensorRegistry> findAllSensors();
 
-    @Query(value = "SELECT c.company_name, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
+    @Query(value = "SELECT c.company_name, sr.site_id, cs.site_name, sr.sensor_id, sr.latitude, sr.longitude, sr.status " +
             "FROM sensor_registry sr " +
             "JOIN company_sites cs ON sr.site_id = cs.id " +
             "JOIN companies c ON cs.company_id = c.id ", nativeQuery = true)

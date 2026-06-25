@@ -50,12 +50,12 @@ public class SensorController {
 
     // URL: GET http://localhost:8081/api/sensors/area/critical?top=3
     @GetMapping("/area/{topN}/critical")
-    public ResponseEntity<List<SensorReadingsDTO>> getAreaTopCritical(
+    public ResponseEntity<List<SiteSensor15MinDTO>> getAreaTopCritical(
             @PathVariable Integer topN,
             Authentication authentication) {
 
         // Pass authentication to the service
-        List<SensorReadingsDTO> criticalData = sensorService.getCriticalReadings(topN, authentication);
+        List<SiteSensor15MinDTO> criticalData = sensorService.getCriticalReadings(topN, authentication);
 
         return ResponseEntity.ok(criticalData);
     }

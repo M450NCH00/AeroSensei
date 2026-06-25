@@ -204,182 +204,197 @@ public class SensorService {
     }
 
     // ==========================================
-    // GET 15-MINUTE READINGS FOR ALL SENSORS AT A SITE
+    // GET 15-MINUTE READINGS AGGREGATED BY SITE
     // ==========================================
     public List<SiteSensor15MinDTO> getSiteSensors15MinReadings(Integer siteId, Authentication authentication) {
         String userEmail = authentication.getName();
 
-        // 1. Check Role
         boolean isGovernment = authentication.getAuthorities().stream()
                 .map(auth -> auth.getAuthority().toUpperCase())
                 .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
 
-        // 2. Fetch the metadata array based on role (reusing your existing repository queries!)
         List<Object[]> results;
-
         if (siteId.equals(-1)) {
             logs.info("Fetching 15m readings for Site: All | User: {} | isGov: {}", userEmail, isGovernment);
-            if (isGovernment) {
-                results = registryRepository.findAllSensorsDetails();
-            } else {
-                results = registryRepository.findSensorsDetailsByEmail(userEmail);
-            }
+            results = isGovernment ? registryRepository.findAllSensorsDetails() : registryRepository.findSensorsDetailsByEmail(userEmail);
         } else {
             logs.info("Fetching 15m readings for Site: {} | User: {} | isGov: {}", siteId, userEmail, isGovernment);
-            if (isGovernment) {
-                results = registryRepository.findAllSensorsBySiteId(siteId);
-            } else {
-                results = registryRepository.findSensorsBySiteAndEmail(userEmail, siteId);
-            }
+            results = isGovernment ? registryRepository.findAllSensorsBySiteId(siteId) : registryRepository.findSensorsBySiteAndEmail(userEmail, siteId);
         }
 
-        // 3. Map the data and fetch the cached 15-min averages
+        // Group the sensors by Site ID (row[1])
+        Map<Integer, List<Object[]>> groupedBySite = results.stream()
+                .collect(Collectors.groupingBy(row -> (Integer) row[1]));
+
         List<SiteSensor15MinDTO> responseList = new ArrayList<>();
 
-        for (Object[] row : results) {
-            SiteSensor15MinDTO dto = new SiteSensor15MinDTO();
-            dto.setCompanyName((String) row[0]);
-            dto.setSiteName((String) row[1]);
-            dto.setSensorId((String) row[2]);
-            dto.setLatitude((BigDecimal) row[3]);
-            dto.setLongitude((BigDecimal) row[4]);
-            dto.setStatus((String) row[5]);
+        // Iterate through each Site and calculate aggregated values
+        for (Map.Entry<Integer, List<Object[]>> entry : groupedBySite.entrySet()) {
+            List<Object[]> siteSensors = entry.getValue();
 
-            // This is super fast because it hits your 1-minute Redis cache first.
-            SensorReadingsDTO readings15m = getRealTimeReadings(dto.getSensorId());
+            Object[] firstRow = siteSensors.get(0);
 
-            dto.setAvgPm25(readings15m.getAvgPm25());
-            dto.setAvgPm10(readings15m.getAvgPm10());
-            dto.setMaxPm25(readings15m.getMaxPm25());
-            dto.setMaxPm10(readings15m.getMaxPm10());
-            dto.setBreachType(readings15m.getBreachType());
-            dto.setState(readings15m.getState());
-            dto.setLastCalculated(readings15m.getLastCalculated());
+            SiteSensor15MinDTO siteDto = new SiteSensor15MinDTO();
+            siteDto.setCompanyName((String) firstRow[0]);
+            siteDto.setSiteId((Integer) firstRow[1]);
+            siteDto.setSiteName((String) firstRow[2]);
+            siteDto.setLatitude((BigDecimal) firstRow[4]);
+            siteDto.setLongitude((BigDecimal) firstRow[5]);
 
-            responseList.add(dto);
+            double totalAvgPm25 = 0.0, totalAvgPm10 = 0.0;
+            double absoluteMaxPm25 = -1.0, absoluteMaxPm10 = -1.0;
+            int validPm25Count = 0, validPm10Count = 0;
+            Instant latestCalculation = Instant.MIN;
+
+            // Fetch readings for every sensor at this site
+            for (Object[] row : siteSensors) {
+                String sensorId = (String) row[3];
+                SensorReadingsDTO sensorReadings = getRealTimeReadings(sensorId);
+
+                // Accumulate PM 2.5
+                if (sensorReadings.getAvgPm25() != null) {
+                    totalAvgPm25 += sensorReadings.getAvgPm25();
+                    validPm25Count++;
+                    if (sensorReadings.getMaxPm25() != null && sensorReadings.getMaxPm25() > absoluteMaxPm25) {
+                        absoluteMaxPm25 = sensorReadings.getMaxPm25();
+                    }
+                }
+
+                // Accumulate PM 10
+                if (sensorReadings.getAvgPm10() != null) {
+                    totalAvgPm10 += sensorReadings.getAvgPm10();
+                    validPm10Count++;
+                    if (sensorReadings.getMaxPm10() != null && sensorReadings.getMaxPm10() > absoluteMaxPm10) {
+                        absoluteMaxPm10 = sensorReadings.getMaxPm10();
+                    }
+                }
+
+                if (sensorReadings.getLastCalculated() != null && sensorReadings.getLastCalculated().isAfter(latestCalculation)) {
+                    latestCalculation = sensorReadings.getLastCalculated();
+                }
+            }
+
+            // Calculate Final Site Numbers
+            Double finalAvgPm25 = validPm25Count > 0 ? (totalAvgPm25 / validPm25Count) : null;
+            Double finalMaxPm25 = validPm25Count > 0 ? absoluteMaxPm25 : null;
+
+            Double finalAvgPm10 = validPm10Count > 0 ? (totalAvgPm10 / validPm10Count) : null;
+            Double finalMaxPm10 = validPm10Count > 0 ? absoluteMaxPm10 : null;
+
+            if (finalAvgPm25 != null) siteDto.setAvgPm25(Math.round(finalAvgPm25 * 100.0) / 100.0);
+            if (finalMaxPm25 != null) siteDto.setMaxPm25(Math.round(finalMaxPm25 * 100.0) / 100.0);
+            if (finalAvgPm10 != null) siteDto.setAvgPm10(Math.round(finalAvgPm10 * 100.0) / 100.0);
+            if (finalMaxPm10 != null) siteDto.setMaxPm10(Math.round(finalMaxPm10 * 100.0) / 100.0);
+
+            siteDto.setLastCalculated(latestCalculation == Instant.MIN ? null : latestCalculation);
+
+            // Delegate to the new helper method (only passing averages!)
+            determineStateAndBreach(siteDto, finalAvgPm25, finalAvgPm10);
+
+            responseList.add(siteDto);
         }
 
         return responseList;
     }
 
     // clustering area sensor function
-    public List<ClusterMaxDTO>  getClusteredMaxInArea(
+    public List<ClusterMaxDTO> getClusteredMaxInArea(
             BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon, int zoom, Authentication authentication) {
 
-        //Identify who is asking
-        String userEmail = authentication.getName();
-        boolean isGovernment = authentication.getAuthorities().stream()
-                .map(auth -> auth.getAuthority().toUpperCase()) // Convert everything to uppercase
-                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+        logs.info("Clustering map area using zoom level {}", zoom);
 
-        logs.info("Government checking: {}", isGovernment);
+        // 1. Fetch all aggregated sites
+        List<SiteSensor15MinDTO> allSites = getSiteSensors15MinReadings(-1, authentication);
 
-        // Translate the map zoom into a database string prefix length
-        int precision = mapZoomToPrecision(zoom);
-        logs.info("Clustering map area using zoom level {} -> geohash precision {}", zoom, precision);
+        // 2. Filter sites to ONLY those that are online and within the map bounding box
+        List<SiteSensor15MinDTO> sitesInArea = allSites.stream()
+                // Keep only online sites
+                .filter(site -> site.getAvgPm25() != null || site.getAvgPm10() != null)
+                // Keep only sites within the map viewport
+                .filter(site -> {
+                    double lat = site.getLatitude().doubleValue();
+                    double lon = site.getLongitude().doubleValue();
+                    return lat >= minLat.doubleValue() && lat <= maxLat.doubleValue() &&
+                            lon >= minLon.doubleValue() && lon <= maxLon.doubleValue();
+                })
+                .collect(Collectors.toList());
 
-        // Get all sensors in the view (Fast DB query)
-        List<SensorRegistry> sensorsInArea;
-
-        if (isGovernment) {
-            // Government sees every sensor inside the map bounds
-            sensorsInArea = registryRepository.findSensorsWithinBounds(minLat, maxLat, minLon, maxLon);
-        } else {
-            // Company sees ONLY their own sensors inside the map bounds
-            sensorsInArea = registryRepository.findCompanySensorsWithinBounds(minLat, maxLat, minLon, maxLon, userEmail);
-        }
-
-        if (sensorsInArea.isEmpty()) {
+        if (sitesInArea.isEmpty()) {
             return new ArrayList<>();
         }
 
-        // Map to hold our grouped data. Key: "Geohash Prefix"
-        Map<String, List<SensorRegistry>> clusteredSensors = new HashMap<>();
+        // Translate the map zoom into a geohash precision length
+        int precision = mapZoomToPrecision(zoom);
 
-        // Assign each sensor to a cluster based on its geohash prefix
-        for (SensorRegistry sensor : sensorsInArea) {
-            // Safety check: Don't substring further than the actual geohash length
-            int actualPrecision = Math.min(precision, sensor.getGeohash().length());
-            String prefix = sensor.getGeohash().substring(0, actualPrecision);
+        // Map to hold our grouped data
+        Map<String, List<SiteSensor15MinDTO>> clusteredSites = new HashMap<>();
 
-            clusteredSensors.computeIfAbsent(prefix, k -> new ArrayList<>()).add(sensor);
+        // 3. Assign each site to a cluster based on dynamically generated Geohash
+        for (SiteSensor15MinDTO site : sitesInArea) {
+            String clusterHash = GeoHash.encodeHash(
+                    site.getLatitude().doubleValue(),
+                    site.getLongitude().doubleValue(),
+                    precision
+            );
+            clusteredSites.computeIfAbsent(clusterHash, k -> new ArrayList<>()).add(site);
         }
 
-        // Calculate the centroids and maximums for each cluster
+        // 4. Calculate the centroids, averages, and peaks for each cluster
         List<ClusterMaxDTO> clusteredResults = new ArrayList<>();
 
-        for (Map.Entry<String, List<SensorRegistry>> entry : clusteredSensors.entrySet()) {
-            List<SensorRegistry> cellSensors = entry.getValue();
+        for (Map.Entry<String, List<SiteSensor15MinDTO>> entry : clusteredSites.entrySet()) {
+            List<SiteSensor15MinDTO> cellSites = entry.getValue();
 
-            // Used for calculating the physical centroid
             double sumLat = 0;
             double sumLon = 0;
 
-            // Track the maximum PM values in this cluster
+            // Track the worst-case site average in this cluster
             double maxAvgPm25 = -1.0;
             double maxAvgPm10 = -1.0;
 
-            // Track the absolute worst-case peaks
+            // Track the absolute worst-case peaks in this cluster (RESTORED)
             double absolutePeakPm25 = -1.0;
             double absolutePeakPm10 = -1.0;
 
             SiteState clusterState = SiteState.SAFE;
-
             Set<PMBreachType> clusterBreachTypes = new HashSet<>();
 
-            int validSensorCount = 0;
+            for (SiteSensor15MinDTO site : cellSites) {
 
-            for (SensorRegistry sensor : cellSensors) {
-                // Get the ultra-fast cached real-time data
-                SensorReadingsDTO liveData = getRealTimeReadings(sensor.getSensorId());
+                // Sum up coordinates for the centroid calculation
+                sumLat += site.getLatitude().doubleValue();
+                sumLon += site.getLongitude().doubleValue();
 
-                if (liveData.getAvgPm25() == null) continue; // Skip offline sensors
+                // Find the highest sustained average among all sites in this cluster
+                if (site.getAvgPm25() != null) maxAvgPm25 = Math.max(maxAvgPm25, site.getAvgPm25());
+                if (site.getAvgPm10() != null) maxAvgPm10 = Math.max(maxAvgPm10, site.getAvgPm10());
 
-                // Sum up ACTUAL coordinates for the centroid calculation
-                sumLat += sensor.getLatitude().doubleValue();
-                sumLon += sensor.getLongitude().doubleValue();
+                // Find the highest absolute peak among all sites in this cluster (RESTORED)
+                if (site.getMaxPm25() != null) absolutePeakPm25 = Math.max(absolutePeakPm25, site.getMaxPm25());
+                if (site.getMaxPm10() != null) absolutePeakPm10 = Math.max(absolutePeakPm10, site.getMaxPm10());
 
-                // 1. Find the highest sustained average in this cluster
-                maxAvgPm25 = Math.max(maxAvgPm25, liveData.getAvgPm25());
-                maxAvgPm10 = Math.max(maxAvgPm10, liveData.getAvgPm10());
-
-                // 2. Find the highest absolute peak in this cluster
-                absolutePeakPm25 = Math.max(absolutePeakPm25, liveData.getMaxPm25());
-                absolutePeakPm10 = Math.max(absolutePeakPm10, liveData.getMaxPm10());
-
-                // 3. Escalate the cluster state based on the worst sensor
-                if (liveData.getState() == SiteState.BREACHED) {
+                // Escalate the cluster state based on the worst site (Averages only logic is preserved!)
+                if (site.getState() == SiteState.BREACHED) {
                     clusterState = SiteState.BREACHED;
-                } else if (liveData.getState() == SiteState.WARNING && clusterState != SiteState.BREACHED) {
+                } else if (site.getState() == SiteState.WARNING && clusterState != SiteState.BREACHED) {
                     clusterState = SiteState.WARNING;
                 }
 
-                PMBreachType sensorBreach = liveData.getBreachType();
-                if (sensorBreach != null && sensorBreach != PMBreachType.NONE) {
-                    // Deconstruct MULTIPLE into its base components
-                    if (sensorBreach == PMBreachType.MULTIPLE) {
+                // Deconstruct MULTIPLE into its base components
+                if (site.getBreachType() != null && site.getBreachType() != PMBreachType.NONE) {
+                    if (site.getBreachType() == PMBreachType.MULTIPLE) {
                         clusterBreachTypes.add(PMBreachType.PM2_5);
                         clusterBreachTypes.add(PMBreachType.PM10);
                     } else {
-                        clusterBreachTypes.add(sensorBreach);
+                        clusterBreachTypes.add(site.getBreachType());
                     }
                 }
-
-                validSensorCount++;
             }
 
-            // If all sensors in this cluster were offline, skip it entirely
-            if (validSensorCount == 0) continue;
-
-            // CALCULATE CENTROIDS (Average of all valid sensor coordinates)
-            double centroidLat = sumLat / validSensorCount;
-            double centroidLon = sumLon / validSensorCount;
-
-            // Round the maximum values to 2 decimal places
-            double finalMaxAvgPm25 = Math.round(maxAvgPm25 * 100.0) / 100.0;
-            double finalMaxAvgPm10 = Math.round(maxAvgPm10 * 100.0) / 100.0;
-            double finalMaxPeakPm25 = Math.round(absolutePeakPm25 * 100.0) / 100.0;
-            double finalMaxPeakPm10 = Math.round(absolutePeakPm10 * 100.0) / 100.0;
+            // CALCULATE CENTROIDS
+            int validSiteCount = cellSites.size();
+            double centroidLat = sumLat / validSiteCount;
+            double centroidLon = sumLon / validSiteCount;
 
             PMBreachType finalBreachType = PMBreachType.NONE;
             if (clusterBreachTypes.size() > 1) {
@@ -388,22 +403,27 @@ public class SensorService {
                 finalBreachType = clusterBreachTypes.iterator().next();
             }
 
-            // Pass the calculated clusterState into the new DTO
+            // Build the final DTO
             ClusterMaxDTO clusterMax = new ClusterMaxDTO();
             clusterMax.setCenterLat(BigDecimal.valueOf(centroidLat));
             clusterMax.setCenterLon(BigDecimal.valueOf(centroidLon));
-            clusterMax.setMaxAvgPm25(finalMaxAvgPm25);
-            clusterMax.setMaxAvgPm10(finalMaxAvgPm10);
-            clusterMax.setMaxPeakPm25(finalMaxPeakPm25);
-            clusterMax.setMaxPeakPm10(finalMaxPeakPm10);
+
+            // Averages
+            if (maxAvgPm25 >= 0) clusterMax.setMaxAvgPm25(Math.round(maxAvgPm25 * 100.0) / 100.0);
+            if (maxAvgPm10 >= 0) clusterMax.setMaxAvgPm10(Math.round(maxAvgPm10 * 100.0) / 100.0);
+
+            // Peaks (RESTORED)
+            if (absolutePeakPm25 >= 0) clusterMax.setMaxPeakPm25(Math.round(absolutePeakPm25 * 100.0) / 100.0);
+            if (absolutePeakPm10 >= 0) clusterMax.setMaxPeakPm10(Math.round(absolutePeakPm10 * 100.0) / 100.0);
+
             clusterMax.setBreachType(finalBreachType);
             clusterMax.setState(clusterState);
-            clusterMax.setSensorCount(validSensorCount);
+            clusterMax.setSiteCount(validSiteCount);
 
             clusteredResults.add(clusterMax);
         }
 
-        logs.info("Reduced {} raw sensors into {} clean map clusters.", sensorsInArea.size(), clusteredResults.size());
+        logs.info("Reduced {} active sites into {} clean map clusters.", sitesInArea.size(), clusteredResults.size());
         return clusteredResults;
     }
 
@@ -479,121 +499,87 @@ public class SensorService {
         return sortedData;
     }
 
-     //Get average for single sensor
-     public SensorReadingsDTO getRealTimeReadings(String sensorId) {
-         logs.info("Requesting real-time average for sensor: {}", sensorId);
-         String redisKey = "sensor_state:" + sensorId;
+    // ==========================================
+    // GET REAL-TIME AVERAGES (SINGLE SENSOR)
+    // ==========================================
+    public SensorReadingsDTO getRealTimeReadings(String sensorId) {
+        logs.info("Requesting real-time average for sensor: {}", sensorId);
+        String redisKey = "sensor_state:" + sensorId;
 
-         // Check Redis first
-         SensorReadingsDTO cachedData = (SensorReadingsDTO) redisTemplate.opsForValue().get(redisKey);
-         if (cachedData != null) {
-             logs.info("REDIS HIT: Returning cached data for sensor: {}", sensorId);
-             return cachedData;
-         }
+        // Check Redis first
+        SensorReadingsDTO cachedData = (SensorReadingsDTO) redisTemplate.opsForValue().get(redisKey);
+        if (cachedData != null) {
+            logs.info("REDIS HIT: Returning cached data for sensor: {}", sensorId);
+            return cachedData;
+        }
 
-         logs.info("REDIS MISS: Fetching fresh data from InfluxDB for sensor: {}", sensorId);
+        logs.info("REDIS MISS: Fetching fresh data from InfluxDB for sensor: {}", sensorId);
 
-         // Not in Redis -> Fetch UUID from PostgreSQL
-         SensorRegistry registry = registryRepository.findBySensorId(sensorId)
-                 .orElseThrow(() -> {
-                     logs.error("Sensor ID not found in PostgreSQL: {}", sensorId);
-                     return new RuntimeException("Sensor not found in database: " + sensorId);
-                 });
+        // Fetch UUID from PostgreSQL
+        SensorRegistry registry = registryRepository.findBySensorId(sensorId)
+                .orElseThrow(() -> {
+                    logs.error("Sensor ID not found in PostgreSQL: {}", sensorId);
+                    return new RuntimeException("Sensor not found in database: " + sensorId);
+                });
 
-         String influxUuid = registry.getId().toString();
+        String influxUuid = registry.getId().toString();
 
-         // Query InfluxDB
-         String fluxQuery = String.format(
-                 "data = from(bucket:\"%s\") " +
-                         "  |> range(start: -15m) " +
-                         "  |> filter(fn: (r) => r._measurement == \"air_quality\") " +
-                         "  |> filter(fn: (r) => r.sensor_id == \"%s\") \n" +
-                         "data |> mean() |> yield(name: \"mean_val\") \n" +
-                         "data |> max() |> yield(name: \"max_val\")",
-                 bucket, influxUuid
-         );
+        // Query InfluxDB (Keeping max_val in the query just to populate the DTO fields if the frontend still wants to display them)
+        String fluxQuery = String.format(
+                "data = from(bucket:\"%s\") " +
+                        "  |> range(start: -15m) " +
+                        "  |> filter(fn: (r) => r._measurement == \"air_quality\") " +
+                        "  |> filter(fn: (r) => r.sensor_id == \"%s\") \n" +
+                        "data |> mean() |> yield(name: \"mean_val\") \n" +
+                        "data |> max() |> yield(name: \"max_val\")",
+                bucket, influxUuid
+        );
 
-         List<FluxTable> tables = influxDBClient.getQueryApi().query(fluxQuery, org);
+        List<FluxTable> tables = influxDBClient.getQueryApi().query(fluxQuery, org);
 
-         SensorReadingsDTO dto = new SensorReadingsDTO();
-         dto.setSensorId(sensorId);
-         dto.setLocationName(registry.getSite().getSiteName());
-         dto.setLastCalculated(Instant.now());
+        SensorReadingsDTO dto = new SensorReadingsDTO();
+        dto.setSensorId(sensorId);
+        dto.setLocationName(registry.getSite().getSiteName());
+        dto.setLastCalculated(Instant.now());
 
-         for (FluxTable table : tables) {
-             for (FluxRecord record : table.getRecords()) {
-                 String field = record.getField();
-                 Double value = (Double) record.getValue();
-                 String resultType = (String) record.getValueByKey("result");
+        for (FluxTable table : tables) {
+            for (FluxRecord record : table.getRecords()) {
+                String field = record.getField();
+                Double value = (Double) record.getValue();
+                String resultType = (String) record.getValueByKey("result");
 
-                 if (value != null) {
-                     if ("mean_val".equals(resultType)) {
-                         if ("pm2_5".equals(field)) dto.setAvgPm25(value);
-                         if ("pm10".equals(field)) dto.setAvgPm10(value);
-                     } else if ("max_val".equals(resultType)) {
-                         if ("pm2_5".equals(field)) dto.setMaxPm25(value);
-                         if ("pm10".equals(field)) dto.setMaxPm10(value);
-                     }
-                 }
-             }
-         }
+                if (value != null) {
+                    if ("mean_val".equals(resultType)) {
+                        if ("pm2_5".equals(field)) dto.setAvgPm25(value);
+                        if ("pm10".equals(field)) dto.setAvgPm10(value);
+                    } else if ("max_val".equals(resultType)) {
+                        if ("pm2_5".equals(field)) dto.setMaxPm25(value);
+                        if ("pm10".equals(field)) dto.setMaxPm10(value);
+                    }
+                }
+            }
+        }
 
-         SiteState pm25State = SiteState.SAFE;
-         SiteState pm10State = SiteState.SAFE;
+        // Delegate to the new helper method (only passing averages!)
+        determineStateAndBreach(dto, dto.getAvgPm25(), dto.getAvgPm10());
 
-         if (dto.getAvgPm25() != null && dto.getMaxPm25() != null) {
-             if (dto.getMaxPm25() >= 50.0 || dto.getAvgPm25() > 40.0) {
-                 pm25State = SiteState.BREACHED;
-             } else if (dto.getAvgPm25() >= 30.0) {
-                 pm25State = SiteState.WARNING;
-             }
-         }
+        // Rounding
+        if (dto.getAvgPm25() != null) dto.setAvgPm25(Math.round(dto.getAvgPm25() * 100.0) / 100.0);
+        if (dto.getAvgPm10() != null) dto.setAvgPm10(Math.round(dto.getAvgPm10() * 100.0) / 100.0);
+        if (dto.getMaxPm25() != null) dto.setMaxPm25(Math.round(dto.getMaxPm25() * 100.0) / 100.0);
+        if (dto.getMaxPm10() != null) dto.setMaxPm10(Math.round(dto.getMaxPm10() * 100.0) / 100.0);
 
-         if (dto.getAvgPm10() != null && dto.getMaxPm10() != null) {
-             if (dto.getMaxPm10() >= 100.0 || dto.getAvgPm10() > 75.0) {
-                 pm10State = SiteState.BREACHED;
-             } else if (dto.getAvgPm10() >= 50.0) {
-                 pm10State = SiteState.WARNING;
-             }
-         }
+        // Save to Redis for 1 minute
+        logs.info("Caching calculated average in Redis for 1 minute for sensor: {}", sensorId);
+        redisTemplate.opsForValue().set(redisKey, dto, 1, TimeUnit.MINUTES);
 
-         // 4. Determine the Overall Worst-Case State
-         if (pm25State == SiteState.BREACHED || pm10State == SiteState.BREACHED) {
-             dto.setState(SiteState.BREACHED);
-         } else if (pm25State == SiteState.WARNING || pm10State == SiteState.WARNING) {
-             dto.setState(SiteState.WARNING);
-         } else {
-             dto.setState(SiteState.SAFE);
-         }
+        return dto;
+    }
 
-         boolean hasPm25Issue = (pm25State != SiteState.SAFE);
-         boolean hasPm10Issue = (pm10State != SiteState.SAFE);
-
-         if (hasPm25Issue && hasPm10Issue) {
-             dto.setBreachType(PMBreachType.MULTIPLE);
-         } else if (hasPm25Issue) {
-             dto.setBreachType(PMBreachType.PM2_5);
-         } else if (hasPm10Issue) {
-             dto.setBreachType(PMBreachType.PM10);
-         } else {
-             dto.setBreachType(PMBreachType.NONE);
-         }
-
-         if (dto.getAvgPm25() != null) dto.setAvgPm25(Math.round(dto.getAvgPm25() * 100.0) / 100.0);
-         if (dto.getAvgPm10() != null) dto.setAvgPm10(Math.round(dto.getAvgPm10() * 100.0) / 100.0);
-         if (dto.getMaxPm25() != null) dto.setMaxPm25(Math.round(dto.getMaxPm25() * 100.0) / 100.0);
-         if (dto.getMaxPm10() != null) dto.setMaxPm10(Math.round(dto.getMaxPm10() * 100.0) / 100.0);
-
-         // Save to Redis for 1 minutes (avoids spam + stale data)
-         logs.info("Caching calculated average in Redis for 1 minutes for sensor: {}", sensorId);
-         redisTemplate.opsForValue().set(redisKey, dto, 1, TimeUnit.MINUTES);
-
-         return dto;
-     }
 
     // ==========================================
-// PRIVATE HELPER: FETCH FROM DB & UPDATE CACHE
-// ==========================================
+    // PRIVATE HELPER: FETCH FROM DB & UPDATE CACHE
+    // ==========================================
     private List<SensorSimpleDTO> refreshSensorsCacheForSite(Integer siteId) {
         logs.info("Fetching fresh sensors from DB and updating cache for Site: {}", siteId);
 
@@ -733,32 +719,22 @@ public class SensorService {
     // GET MACRO DIGEST DATA
     // ==========================================
     public MacroDigestDTO getMacroDigest(Authentication authentication) {
-        String userEmail = authentication.getName();
-        boolean isGovernment = authentication.getAuthorities().stream()
-                .map(auth -> auth.getAuthority().toUpperCase())
-                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
-
-        List<SensorRegistry> allSensors;
-        if (isGovernment) {
-            allSensors = registryRepository.findAllSensors();
-        } else {
-            allSensors = registryRepository.findAllCompanySensorsByEmail(userEmail);
-        }
+        List<SiteSensor15MinDTO> allSites = getSiteSensors15MinReadings(-1, authentication);
 
         int totalSites = 0;
         int warnings = 0;
         int breaches = 0;
 
-        for (SensorRegistry sensor : allSensors) {
-            SensorReadingsDTO liveData = getRealTimeReadings(sensor.getSensorId());
-
-            if (liveData.getAvgPm25() == null) continue; // Skip offline sensors
+        for (SiteSensor15MinDTO site : allSites) {
+            if (site.getAvgPm25() == null && site.getAvgPm10() == null) {
+                continue;
+            }
 
             totalSites++;
 
-            if (liveData.getState() == SiteState.BREACHED) {
+            if (site.getState() == SiteState.BREACHED) {
                 breaches++;
-            } else if (liveData.getState() == SiteState.WARNING) {
+            } else if (site.getState() == SiteState.WARNING) {
                 warnings++;
             }
         }
@@ -769,28 +745,17 @@ public class SensorService {
     // ==========================================
     // GET TOP N CRITICAL SENSORS
     // ==========================================
-    public List<SensorReadingsDTO> getCriticalReadings(int topN, Authentication authentication) {
-        String userEmail = authentication.getName();
-        boolean isGovernment = authentication.getAuthorities().stream()
-                .map(auth -> auth.getAuthority().toUpperCase())
-                .anyMatch(role -> role.equals("GOVERNMENT") || role.equals("ROLE_GOVERNMENT"));
+    public List<SiteSensor15MinDTO> getCriticalReadings(int topN, Authentication authentication) {
+        List<SiteSensor15MinDTO> allSites = getSiteSensors15MinReadings(-1, authentication);
 
-        List<SensorRegistry> allSensors;
-        if (isGovernment) {
-            allSensors = registryRepository.findAllSensors();
-        } else {
-            allSensors = registryRepository.findAllCompanySensorsByEmail(userEmail);
-        }
-
-        if (allSensors.isEmpty()) {
+        if (allSites.isEmpty()) {
             return new ArrayList<>();
         }
 
-        return allSensors.stream()
-                // Fetch the live data (hits Redis cache instantly for most)
-                .map(sensor -> getRealTimeReadings(sensor.getSensorId()))
-                // Filter out offline sensors
-                .filter(readings -> readings.getAvgPm25() != null)
+        return allSites.stream()
+                // Filter out offline sites (where no averages could be calculated)
+                .filter(site -> site.getAvgPm25() != null || site.getAvgPm10() != null)
+
                 // Sort using our Tri-Level Escalation Logic
                 .sorted((a, b) -> {
                     // Tie-Breaker 1: Site State (BREACHED > WARNING > SAFE)
@@ -801,7 +766,7 @@ public class SensorService {
                     int typeCompare = Integer.compare(getTypeScore(b.getBreachType()), getTypeScore(a.getBreachType()));
                     if (typeCompare != 0) return typeCompare;
 
-                    // Tie-Breaker 3: Severity Percentage (Calculated on the fly)
+                    // Tie-Breaker 3: Severity Percentage (Calculated dynamically)
                     return Double.compare(calculateDynamicSeverity(b), calculateDynamicSeverity(a));
                 })
                 // Grab only the Top N most critical globally
@@ -810,15 +775,18 @@ public class SensorService {
     }
 
     // Helper Methods for getCriticalReadings()
-    private double calculateDynamicSeverity(SensorReadingsDTO dto) {
+    private double calculateDynamicSeverity(SiteSensor15MinDTO dto) {
         double pm25Severity = 0.0;
-        if (dto.getAvgPm25() != null && dto.getMaxPm25() != null) {
-            pm25Severity = Math.max(dto.getAvgPm25() / 40.0, dto.getMaxPm25() / 50.0);
+        double pm10Severity = 0.0;
+
+        // Calculate percentage towards PM 2.5 Breach Threshold (40.0)
+        if (dto.getAvgPm25() != null) {
+            pm25Severity = dto.getAvgPm25() / 40.0;
         }
 
-        double pm10Severity = 0.0;
-        if (dto.getAvgPm10() != null && dto.getMaxPm10() != null) {
-            pm10Severity = Math.max(dto.getAvgPm10() / 75.0, dto.getMaxPm10() / 100.0);
+        // Calculate percentage towards PM 10 Breach Threshold (75.0)
+        if (dto.getAvgPm10() != null) {
+            pm10Severity = dto.getAvgPm10() / 75.0;
         }
 
         return Math.max(pm25Severity, pm10Severity);
@@ -843,5 +811,68 @@ public class SensorService {
             case NONE: return 1;
             default: return 0;
         }
+    }
+
+    // ==========================================
+    // HELPERS: CALCULATE STATE & BREACH TYPE (AVG ONLY)
+    // ==========================================
+    private void determineStateAndBreach(SiteSensor15MinDTO dto, Double avgPm25, Double avgPm10) {
+        Object[] states = calculateBreachLogic(avgPm25, avgPm10);
+        dto.setState((SiteState) states[0]);
+        dto.setBreachType((PMBreachType) states[1]);
+    }
+
+    private void determineStateAndBreach(SensorReadingsDTO dto, Double avgPm25, Double avgPm10) {
+        Object[] states = calculateBreachLogic(avgPm25, avgPm10);
+        dto.setState((SiteState) states[0]);
+        dto.setBreachType((PMBreachType) states[1]);
+    }
+
+
+    // The core logic shared by both DTOs
+    private Object[] calculateBreachLogic(Double avgPm25, Double avgPm10) {
+        SiteState pm25State = SiteState.SAFE;
+        SiteState pm10State = SiteState.SAFE;
+
+        // PM 2.5 Logic (Average Only)
+        if (avgPm25 != null) {
+            if (avgPm25 > 40.0) {
+                pm25State = SiteState.BREACHED;
+            } else if (avgPm25 >= 30.0) {
+                pm25State = SiteState.WARNING;
+            }
+        }
+
+        // PM 10 Logic (Average Only)
+        if (avgPm10 != null) {
+            if (avgPm10 > 75.0) {
+                pm10State = SiteState.BREACHED;
+            } else if (avgPm10 >= 50.0) {
+                pm10State = SiteState.WARNING;
+            }
+        }
+
+        // Determine Overall State
+        SiteState finalState = SiteState.SAFE;
+        if (pm25State == SiteState.BREACHED || pm10State == SiteState.BREACHED) {
+            finalState = SiteState.BREACHED;
+        } else if (pm25State == SiteState.WARNING || pm10State == SiteState.WARNING) {
+            finalState = SiteState.WARNING;
+        }
+
+        // Determine Breach Type
+        PMBreachType breachType = PMBreachType.NONE;
+        boolean hasPm25Issue = (pm25State != SiteState.SAFE);
+        boolean hasPm10Issue = (pm10State != SiteState.SAFE);
+
+        if (hasPm25Issue && hasPm10Issue) {
+            breachType = PMBreachType.MULTIPLE;
+        } else if (hasPm25Issue) {
+            breachType = PMBreachType.PM2_5;
+        } else if (hasPm10Issue) {
+            breachType = PMBreachType.PM10;
+        }
+
+        return new Object[]{finalState, breachType};
     }
 }
