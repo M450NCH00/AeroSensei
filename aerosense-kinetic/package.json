@@ -43,5 +43,13 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "wait-on": "^9.0.10"
+  },
+  "optionalDependencies": {
+    "lightningcss-linux-arm64-gnu": "1.32.0",
+    "lightningcss-linux-x64-gnu": "1.32.0",
+    "@tailwindcss/oxide-linux-arm64-gnu": "4.3.0",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.0",
+    "@next/swc-linux-arm64-gnu": "16.2.7",
+    "@next/swc-linux-x64-gnu": "16.2.7"
   }
 }
