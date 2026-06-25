@@ -56,7 +56,27 @@ SKILLS: list[Skill] = [
             "list_sensors to enumerate sites.",
             "For a specific sensor, call get_sensor_average to pull PM1.0/2.5/4.0/10.",
             "Compare PM2.5 against safe limits (<12 annual, <35 24-hour μg/m³) and "
-            "call out WARNING (80-100% of limit) and CRITICAL (over limit) sites.",
+            "call out sites that are over the limit (a WARNING or, if severe, a "
+            "BREACHED-level exceedance). Readings roll up per site.",
+        ],
+    ),
+    Skill(
+        name="Breach-alert & fine enforcement review",
+        when_to_use=(
+            "The regulator asks which sites breached PM limits, which breaches are "
+            "still un-fined, who has been fined, fine amounts/status, or wants an "
+            "enforcement overview."
+        ),
+        tools=["list_alerts", "list_fines"],
+        steps=[
+            "Call list_alerts for all PM-breach alerts (site, company, pm_type, "
+            "measured vs threshold, WARNING/BREACHED level, and whether fined).",
+            "To answer about penalties, call list_fines for amounts, status "
+            "(issued/paid/cancelled), and who issued each.",
+            "Highlight BREACHED-level and still-un-fined alerts, group by company/"
+            "site, and cite the concrete measured values and fine amounts. You can "
+            "read these records but cannot create alerts or impose fines — direct "
+            "the regulator to the Fines page to take action.",
         ],
     ),
     Skill(
@@ -85,6 +105,26 @@ SKILLS: list[Skill] = [
             "Resolve the reporting year (ask or use the current year if implied).",
             "Call get_emission_reports for that year and summarize submissions, "
             "missing reporters, and notable emission totals.",
+        ],
+    ),
+    Skill(
+        name="Air-quality report generation (PDF)",
+        when_to_use=(
+            "The user asks for a report, PDF, or written summary about a specific "
+            "company or site — optionally over a date range/timeline."
+        ),
+        tools=["generate_air_quality_report"],
+        steps=[
+            "Identify whether the subject is a COMPANY (all its sites) or a single "
+            "SITE, and extract any timeline the user gave (convert to YYYY-MM-DD "
+            "from/to dates). If neither company nor site is named, ask which one.",
+            "Call generate_air_quality_report with target_type, name, and the "
+            "optional from_date/to_date. It gathers PM2.5/PM10 history, alerts and "
+            "fines, assesses readings against QCVN 05:2023 and WHO limits, and "
+            "renders the PDF.",
+            "Relay the returned report_url to the user as a clickable download link, "
+            "and briefly summarize the headline figures (sites covered, alerts, "
+            "fines) from the tool result.",
         ],
     ),
     Skill(

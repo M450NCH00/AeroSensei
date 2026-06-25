@@ -12,7 +12,7 @@ import logging
 import os
 
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 
 import agent
@@ -57,6 +57,26 @@ def ask():
         return jsonify({"error": "The assistant encountered an internal error."}), 500
 
     return jsonify({"answer": answer})
+
+
+@app.route("/reports/<path:filename>", methods=["GET"])
+def get_report(filename):
+    """Serve a generated PDF report, streamed from MinIO.
+
+    The report tool stores PDFs in MinIO with unguessable random filenames and
+    returns this URL to the user, who downloads it directly from the browser.
+    """
+    if not filename.endswith(".pdf") or "/" in filename:
+        return jsonify({"error": "not found"}), 404
+    import storage
+    data = storage.get_report(filename)
+    if data is None:
+        return jsonify({"error": "Report not found or expired."}), 404
+    return Response(
+        data,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @app.route("/alert", methods=["POST"])

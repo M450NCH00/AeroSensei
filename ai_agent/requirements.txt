@@ -5,6 +5,10 @@ requests==2.32.3
 PyJWT==2.10.1
 # Web research: parse search-result and company pages into clean text.
 beautifulsoup4==4.12.3
+# PDF generation for comprehensive air-quality reports.
+reportlab==4.2.5
+# S3 client for storing generated reports in MinIO.
+boto3==1.35.99
 # litellm is only needed for the LiteLLM provider (LLM_PROVIDER=litellm).
 litellm==1.61.0
 # boto3 is only needed for the future Bedrock provider; install it then.

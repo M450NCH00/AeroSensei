@@ -36,6 +36,10 @@
 // NTP for the ISO-8601 UTC timestamp the ingest endpoint expects
 #define NTP_SERVER "pool.ntp.org"
 
+// How often to read the SPS30 and POST to the backend (matches the
+// Python traffic simulator's READING_INTERVAL of 15 seconds)
+#define POST_INTERVAL_MS 15000
+
 // =====================================================
 // SPS30 Configuration
 // =====================================================
