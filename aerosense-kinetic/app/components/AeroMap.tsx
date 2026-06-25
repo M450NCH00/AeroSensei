@@ -16,7 +16,7 @@ interface ClusterMaxDTO {
   maxAvgPm10: number;
   maxPeakPm25: number;
   maxPeakPm10: number;
-  sensorCount: number;
+  siteCount: number;
   state: "SAFE" | "WARNING" | "BREACHED";
   breachType: "NONE" | "PM2_5" | "PM10" | "MULTIPLE";
 }
@@ -130,7 +130,7 @@ export default function AeroMap() {
         <MapViewportTracker onMapChange={setMapState} />
 
         {clusters.map((cluster, index) => {
-          const isCluster = cluster.sensorCount > 1;
+          const isCluster = cluster.siteCount > 1;
           
           // Determine text color based on state
           let statusTextColor = "text-[#009B9E]";
@@ -141,7 +141,7 @@ export default function AeroMap() {
             <Marker
               key={`cluster-${cluster.centerLat}-${cluster.centerLon}-${index}`} 
               position={[cluster.centerLat, cluster.centerLon]}
-              icon={createCustomIcon(cluster.state, cluster.sensorCount)}
+              icon={createCustomIcon(cluster.state, cluster.siteCount)}
             >
               <Popup autoPan={false} className="rounded-xl font-sans min-w-[250px]">
                 <div className="p-1 flex flex-col h-full">
@@ -153,7 +153,7 @@ export default function AeroMap() {
                     </h3>
                     {isCluster && (
                       <span className="inline-block mt-1 bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-md font-semibold tracking-wide">
-                        {cluster.sensorCount} SENSORS AGGREGATED
+                        {cluster.siteCount} SITES AGGREGATED
                       </span>
                     )}
                   </div>
@@ -183,8 +183,7 @@ export default function AeroMap() {
                     {/* View Details Button (Only for single nodes, placed at bottom) */}
                     {!isCluster && (
                       <Link 
-                        href={`/site-details?lat=${cluster.centerLat}&lon=${cluster.centerLon}`} 
-                        // Changed 'justify-end' to 'justify-start' and added 'mt-1' for a tiny bit of breathing room
+                        href={`/dashboard/sites?lat=${cluster.centerLat}&lon=${cluster.centerLon}`} 
                         className="text-[#005A8C] hover:text-[#004266] text-[11px] font-black uppercase tracking-wider transition-colors flex items-center justify-start gap-1 group w-full mt-1"
                       >
                         Go to site summary

@@ -2,9 +2,12 @@
 import { Search, ArrowUpDown, ChevronRight, RefreshCw } from "lucide-react";
 
 export interface SiteData {
-  id: string;
+  id: string; // React still needs a unique key
+  siteId: number;
   name: string;
   company: string;
+  latitude: number;
+  longitude: number;
   avgPm25: number | null;
   avgPm10: number | null;
   maxPm25: number | null;
@@ -12,12 +15,11 @@ export interface SiteData {
   breachType: "NONE" | "PM2_5" | "PM10" | "MULTIPLE";
   state: "SAFE" | "WARNING" | "BREACHED";
   lastUpdated: string;
-  status: "active" | "maintenance" | "offline";
 }
 
-export type SortKey = "status" | "name" | "avgPm25" | "avgPm10";
+// Updated sort key: replaced 'status' with 'state'
+export type SortKey = "state" | "name" | "avgPm25" | "avgPm10";
 
-// NEW: Added the refresh props
 interface SitesTableProps {
   data: SiteData[];
   searchTerm: string;
@@ -28,6 +30,7 @@ interface SitesTableProps {
   isLoading: boolean;
   onRefresh: () => void;
   timeAgo: string;
+  onViewDetails: (site: SiteData) => void;
 }
 
 export default function SitesTable({
@@ -40,6 +43,7 @@ export default function SitesTable({
   isLoading,
   onRefresh,
   timeAgo,
+  onViewDetails,
 }: SitesTableProps) {
   
   const renderSortIcon = (key: SortKey) => (
@@ -63,7 +67,6 @@ export default function SitesTable({
         <div>
           <h2 className="text-xl font-black text-gray-800 tracking-tight">Active Sensor Directory</h2>
           
-          {/* NEW: Inline metrics and refresh button */}
           <div className="flex items-center gap-3 mt-1">
             <p className="text-sm font-medium text-gray-500">Managing {data.length} telemetry nodes</p>
             <span className="text-gray-300 text-xs">•</span>
@@ -83,7 +86,8 @@ export default function SitesTable({
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Search sites, ID, or company..."
+            // Removed 'ID' from placeholder text
+            placeholder="Search sites or company..."
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#009B9E]/50 focus:border-[#009B9E] transition-all"
@@ -96,11 +100,12 @@ export default function SitesTable({
         <table className="w-full text-left border-collapse">
           <thead className="sticky top-0 bg-gray-50 border-b border-gray-100 z-10 backdrop-blur-md bg-opacity-90">
             <tr>
+              {/* Updated column header to 'State' */}
               <th 
                 className="py-4 px-6 text-xs font-black tracking-wider text-gray-500 uppercase cursor-pointer group select-none"
-                onClick={() => onSortToggle("status")}
+                onClick={() => onSortToggle("state")}
               >
-                <div className="flex items-center">Status {renderSortIcon("status")}</div>
+                <div className="flex items-center">State {renderSortIcon("state")}</div>
               </th>
               
               <th 
@@ -149,12 +154,16 @@ export default function SitesTable({
                 >
                   <td className="py-4 px-6 align-top pt-5">
                     <div className="flex flex-col items-start gap-1">
-                      <span className={`w-2.5 h-2.5 rounded-full ${
-                        site.status === "active" ? "bg-[#009B9E] shadow-[0_0_8px_rgba(0,155,158,0.5)]" : 
-                        site.status === "maintenance" ? "bg-[#F28C28] shadow-[0_0_8px_rgba(242,140,40,0.5)]" : 
-                        "bg-gray-300"
-                      }`} />
+                      {/* State Badge Rendering */}
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider
+                        ${site.state === "BREACHED" ? "bg-red-100 text-red-800" : ""}
+                        ${site.state === "WARNING" ? "bg-yellow-100 text-yellow-800" : ""}
+                        ${site.state === "SAFE" ? "bg-green-100 text-green-800" : ""}
+                      `}>
+                        {site.state.toLowerCase()}
+                      </span>
                       
+                      {/* Existing breach type text below the badge */}
                       {site.state !== "SAFE" && site.breachType !== "NONE" && (
                         <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded mt-1 whitespace-nowrap ${
                            site.state === "BREACHED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
@@ -170,7 +179,7 @@ export default function SitesTable({
                     <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mt-0.5">
                       {site.company || "Unknown"}
                     </p>
-                    <p className="text-[10px] font-semibold text-gray-400 mt-0.5">ID: {site.id}</p>
+                    {/* ID display has been removed from here */}
                   </td>
                   
                   <td className="py-4 px-6 align-top">
@@ -201,6 +210,7 @@ export default function SitesTable({
                   
                   <td className="py-4 px-6 text-right align-top pt-4">
                     <button 
+                        onClick={() => onViewDetails(site)}
                         aria-label={`View details for ${site.name}`}
                         className="p-2 text-gray-300 group-hover:text-[#005A8C] group-hover:bg-[#005A8C]/10 rounded-lg transition-all inline-flex"
                     >

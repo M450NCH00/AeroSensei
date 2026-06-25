@@ -9,10 +9,9 @@ import java.time.Instant;
 public class SiteSensor15MinDTO {
     private String companyName;
     private String siteName;
-    private String sensorId;
+    private Integer siteId;
     private BigDecimal latitude;
     private BigDecimal longitude;
-    private String status;
     private Double avgpm25;
     private Double avgpm10;
     private Double maxpm25;
@@ -30,17 +29,14 @@ public class SiteSensor15MinDTO {
     public String getSiteName() { return siteName; }
     public void setSiteName(String siteName) { this.siteName = siteName; }
 
-    public String getSensorId() { return sensorId; }
-    public void setSensorId(String sensorId) { this.sensorId = sensorId; }
+    public Integer getSiteId() { return siteId; }
+    public void setSiteId(Integer siteId) { this.siteId = siteId; }
 
     public BigDecimal getLatitude() { return latitude; }
     public void setLatitude(BigDecimal latitude) { this.latitude = latitude; }
 
     public BigDecimal getLongitude() { return longitude; }
     public void setLongitude(BigDecimal longitude) { this.longitude = longitude; }
-
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
 
     public Double getAvgPm25() { return avgpm25; }
     public void setAvgPm25(Double avgpm25) { this.avgpm25 = avgpm25; }
