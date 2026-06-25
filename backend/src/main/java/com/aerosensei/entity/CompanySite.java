@@ -21,6 +21,12 @@ public class CompanySite {
     @Column(name = "site_name", length = 100, nullable = false)
     private String siteName;
 
+    @Column(name = "pm2_5_value")
+    private BigDecimal pm2_5;
+
+    @Column(name = "pm10_value")
+    private BigDecimal pm10;
+
     @Column(nullable = false, precision = 11, scale = 8)
     private BigDecimal latitude;
 
@@ -47,4 +53,10 @@ public class CompanySite {
 
     public BigDecimal getLongitude() { return longitude; }
     public void setLongitude(BigDecimal longitude) { this.longitude = longitude; }
+
+    public BigDecimal getPm2_5() { return pm2_5; }
+    public void setPm2_5(BigDecimal pm2_5) { this.pm2_5 = pm2_5; }
+
+    public BigDecimal getPm10() { return pm10; }
+    public void setPm10(BigDecimal pm10) { this.pm10 = pm10; }
 }

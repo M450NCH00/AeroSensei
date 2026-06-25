@@ -1,35 +1,39 @@
 import time
 import random
 import os
+import sys
+import logging
 import psycopg2
+import requests
 from datetime import datetime, timezone
-from influxdb_client import InfluxDBClient, Point, WritePrecision
-from influxdb_client.client.write_api import SYNCHRONOUS
+
+# --- LOGGING CONFIGURATION FOR DOCKER ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout
+)
+logger = logging.getLogger("TrafficSimulator")
 
 # --- CONFIGURATION ---
-# InfluxDB Config
-INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
-INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "my-super-secret-auth-token")
-INFLUX_ORG = os.getenv("INFLUX_ORG", "aerosensei")
-INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "sensor_data")
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8081/api/sensors/ingest")
 
-# PostgreSQL Config
-PG_HOST = os.getenv("PG_HOST", "postgres")
+PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = os.getenv("PG_PORT", "5432")
 PG_DB = os.getenv("PG_DB", "aerosensei_db")
 PG_USER = os.getenv("PG_USER", "postgres")
 PG_PASS = os.getenv("PG_PASS", "postgres")
 
-# Sensor Config
-READING_INTERVAL = int(os.getenv("READING_INTERVAL", "15")) # Seconds between readings
+READING_INTERVAL = 15
 
-print("🔄 Starting Continuous Sensor Service...", flush=True)
+logger.info("Starting API Traffic Simulator...")
 
-# --- 1. FETCH UUIDS FROM POSTGRESQL ---
+# --- 1. FETCH SENSORS & SITES FROM POSTGRESQL ---
 sensors = []
 while True:
     try:
-        print(f"🔌 Connecting to PostgreSQL at {PG_HOST}:{PG_PORT}...", flush=True)
+        logger.info(f"Connecting to PostgreSQL at {PG_HOST}:{PG_PORT}...")
         conn = psycopg2.connect(
             host=PG_HOST,
             port=PG_PORT,
@@ -39,95 +43,77 @@ while True:
         )
         cur = conn.cursor()
 
-        # Fetch up to 9 UUIDs from the registry table
-        cur.execute("SELECT id FROM sensor_registry LIMIT 9;")
+        cur.execute("SELECT sensor_id, site_id FROM sensor_registry LIMIT 9;")
         rows = cur.fetchall()
-        sensors = [str(row[0]) for row in rows]
+
+        sensors = [{"sensor_id": str(row[0]), "site_id": row[1]} for row in rows]
 
         cur.close()
         conn.close()
 
         if len(sensors) > 0:
-            print(f"✅ Successfully fetched {len(sensors)} sensor UUIDs from PostgreSQL!", flush=True)
+            logger.info(f"Successfully fetched {len(sensors)} sensors from PostgreSQL!")
             break
         else:
-            print("⚠️ Connected to DB, but no sensors found. Waiting 5s...", flush=True)
+            logger.warning("Connected to DB, but no sensors found. Waiting 5s...")
             time.sleep(5)
 
     except Exception as e:
-        print(f"⏳ Waiting for PostgreSQL to start... Error: {e}", flush=True)
+        logger.error(f"Waiting for PostgreSQL to start... Error: {e}")
         time.sleep(3)
 
+# --- 2. SELECT THE CRITICAL SITE ---
+critical_site_id = sensors[0]["site_id"]
+logger.warning(f"TARGET LOCKED: Site ID {critical_site_id} will consistently simulate PM2.5 > 55 & PM10 > 120!")
+logger.info(f"Sending data to {BACKEND_API_URL} every {READING_INTERVAL} seconds...")
 
-# --- 2. CONNECT TO INFLUXDB ---
-print(f"🔌 Connecting to InfluxDB at {INFLUX_URL}...", flush=True)
-client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
-
+# --- 3. CONTINUOUS DATA GENERATION ---
 while True:
-    try:
-        if client.ping():
-            print("✅ InfluxDB is awake and ready!", flush=True)
-            break
-    except Exception:
-        print("⏳ Waiting for InfluxDB...", flush=True)
-        time.sleep(2)
+    utc_now = datetime.now(timezone.utc).isoformat()
 
+    for sensor in sensors:
+        sensor_id = sensor["sensor_id"]
+        site_id = sensor["site_id"]
 
-# --- 3. HELPER: WORKING HOURS LOGIC ---
-def is_working_hours(current_time):
-    # Weekdays (Monday=0, Sunday=6) -> < 5 means Mon-Fri
-    is_weekday = current_time.weekday() < 5
-    # Working hours: 8:00 AM to 6:00 PM (18:00)
-    is_active_hours = 8 <= current_time.hour < 18
-    return is_weekday and is_active_hours
+        # --- DATA GENERATION LOGIC ---
+        if site_id == critical_site_id:
+            # ALERT SITE: Force both PM2.5 and PM10 to exceed your new thresholds
+            pm25 = round(random.uniform(60, 80), 2)   # Threshold is 55.0
+            pm10 = round(random.uniform(125, 150), 2) # Threshold is 120.0
 
-
-# --- 4. CONTINUOUS DATA GENERATION ---
-write_api = client.write_api(write_options=SYNCHRONOUS)
-print(f"Starting continuous data generation for {len(sensors)} sensors (Interval: {READING_INTERVAL}s)...", flush=True)
-
-while True:
-    try:
-        # Use container's local time for working hour logic, but UTC for InfluxDB timestamp
-        local_now = datetime.now() 
-        utc_now = datetime.now(timezone.utc)
-        
-        points = []
-        working_hours = is_working_hours(local_now)
-
-        for sensor_uuid in sensors:
-            if working_hours:
-                # HIGHER POLLUTION DURING WORKING HOURS
-                pm1 = round(random.uniform(15, 35), 2)
-                nc05 = round(random.uniform(1000, 3000), 2)
-            else:
-                # LOWER POLLUTION DURING OFF-HOURS
-                pm1 = round(random.uniform(2, 12), 2)
-                nc05 = round(random.uniform(200, 1000), 2)
-
-            # Dependent values scale up based on the base pm1 value
+            # Fill in the blanks logically to make the payload look realistic
+            pm1 = round(pm25 * 0.5, 2)
+            pm4 = round((pm25 + pm10) / 2, 2)
+            nc05 = round(random.uniform(2000, 4000), 2)
+        else:
+            # NORMAL SITE: Safe PM levels
+            pm1 = round(random.uniform(2, 12), 2)
             pm25 = round(pm1 + random.uniform(0, 15), 2)
             pm4 = round(pm25 + random.uniform(0, 5), 2)
             pm10 = round(pm4 + random.uniform(0, 8), 2)
+            nc05 = round(random.uniform(200, 1000), 2)
 
-            point = Point("air_quality") \
-                .tag("sensor_id", sensor_uuid) \
-                .field("pm1_0", pm1) \
-                .field("pm2_5", pm25) \
-                .field("pm4_0", pm4) \
-                .field("pm10", pm10) \
-                .field("nc0_5", nc05) \
-                .time(utc_now, WritePrecision.NS)
-            
-            points.append(point)
+        payload = {
+            "sensorId": sensor_id,
+            "pm1_0": pm1,
+            "pm2_5": pm25,
+            "pm4_0": pm4,
+            "pm10": pm10,
+            "nc0_5": nc05,
+            "timestamp": utc_now
+        }
 
-        # Write the batch of points
-        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=points)
-        status = "Working Hours (High Pollution)" if working_hours else "🌙 Off-Hours (Low Pollution)"
-        print(f"[{utc_now.strftime('%H:%M:%S UTC')}] Inserted {len(points)} records. Status: {status}", flush=True)
+        try:
+            response = requests.post(BACKEND_API_URL, json=payload, timeout=5)
 
-    except Exception as e:
-        print(f"Error writing to InfluxDB: {e}", flush=True)
+            # Updated logs to show both values clearly
+            if site_id == critical_site_id:
+                logger.warning(f"[CRITICAL] Sent PM2.5: {pm25} | PM10: {pm10} for Sensor {sensor_id} (Site {site_id})")
+            else:
+                logger.info(f"[NORMAL]   Sent PM2.5: {pm25} | PM10: {pm10} for Sensor {sensor_id} (Site {site_id})")
 
-    # Wait before the next reading
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to reach Spring Boot Backend: {e}")
+
+    logger.info("-" * 60)
     time.sleep(READING_INTERVAL)
