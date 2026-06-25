@@ -18,8 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -127,6 +129,48 @@ public class AlertService {
         return toFineResponse(fineRepository.save(fine));
     }
 
+    /**
+     * Demo helper: impose a fine on every BREACHED alert that hasn't been fined yet,
+     * with an amount scaled by how far the reading exceeded its threshold (mirroring
+     * the manual-fine UI default). Returns the number of fines issued. Used by the
+     * "evaluate now" button so a demo records fines immediately.
+     */
+    @Transactional
+    public int autoFineBreaches(String issuedBy) {
+        Set<Long> finedAlertIds = new HashSet<>();
+        for (Fine f : fineRepository.findAll()) {
+            if (f.getAlertId() != null) finedAlertIds.add(f.getAlertId());
+        }
+
+        int issued = 0;
+        for (PmAlert a : alertRepository.findAllByOrderByTriggeredAtDesc()) {
+            if (!"BREACHED".equalsIgnoreCase(a.getAlertLevel())) continue;   // never fine WARNINGs
+            if (finedAlertIds.contains(a.getId())) continue;                 // already fined
+
+            BigDecimal over = (a.getMeasuredValue() != null && a.getThresholdValue() != null)
+                    ? a.getMeasuredValue().subtract(a.getThresholdValue())
+                    : BigDecimal.ZERO;
+            long scaled = Math.max(0L, Math.round(over.doubleValue())) * 100L;
+            BigDecimal amount = BigDecimal.valueOf(Math.max(scaled, 1000L));
+            String reason = String.format(
+                    "Auto-issued on evaluation: %s breach of %s µg/m³ vs %s threshold%s.",
+                    a.getPmType() == null ? "PM" : a.getPmType().toUpperCase(),
+                    a.getMeasuredValue(), a.getThresholdValue(),
+                    a.getAlertDate() != null ? " for " + a.getAlertDate() : "");
+
+            ImposeFineRequest req = new ImposeFineRequest();
+            req.setAmount(amount);
+            req.setReason(reason);
+            try {
+                imposeFine(a.getId(), req, issuedBy);
+                issued++;
+            } catch (IllegalStateException ignored) {
+                // Concurrently fined between our scan and the insert — skip it.
+            }
+        }
+        return issued;
+    }
+
     // --- mapping helpers ---
 
     private CompanySite findSite(Long siteId) {
@@ -142,6 +186,7 @@ public class AlertService {
         r.setMeasuredValue(a.getMeasuredValue());
         r.setThresholdValue(a.getThresholdValue());
         r.setAlertLevel(a.getAlertLevel());
+        r.setAlertDate(a.getAlertDate());
         r.setTriggeredAt(a.getTriggeredAt());
         r.setResolvedAt(a.getResolvedAt());
         r.setNote(a.getNote());

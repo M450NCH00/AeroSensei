@@ -5,6 +5,7 @@ import {
   Settings2, Plus, X, Pencil, Trash2, FlaskConical,
   Building2, TrendingUp, TrendingDown, Users, ChevronDown, Check, Loader2,
   BarChart3, FileText, RefreshCw, Leaf, Sparkles,
+  ScanSearch, ExternalLink, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
 import { useAuth } from "@/app/context/AuthContext";
@@ -99,6 +100,34 @@ interface CompanyOverview {
   sectorName: string | null;
 }
 
+// Structured output of the isolated web researcher (agent /classify/preview) —
+// descriptive data only, which the regulator reviews before any assignment.
+interface ResearchSummary {
+  company: string;
+  business_activity: string;
+  products: string[];
+  industry: string;
+  suggested_sector: string;
+  evidence_urls: string[];
+  confidence: string;
+  notes: string;
+}
+
+interface ClassifyPreview {
+  summary: ResearchSummary;
+  suggestedSectorId: number | null;
+  suggestedSectorName: string;
+}
+
+// Extract a backend error message from an axios-style error without using `any`.
+function getErrMsg(e: unknown, fallback: string): string {
+  if (typeof e === "object" && e !== null) {
+    const resp = (e as { response?: { data?: { message?: string } } }).response;
+    if (resp?.data?.message) return resp.data.message;
+  }
+  return fallback;
+}
+
 export default function CarbonCreditPage() {
   const { hasRole } = useAuth();
   const [activeTab, setActiveTab] = useState<"sectors" | "companies" | "allocations">("companies");
@@ -118,10 +147,23 @@ export default function CarbonCreditPage() {
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // AI auto-classification (web research -> sector assignment via the AI agent)
-  const [autoClassifying, setAutoClassifying] = useState(false);
-  const [autoClassifyProgress, setAutoClassifyProgress] = useState<{ done: number; total: number } | null>(null);
+  // AI auto-classification. The web research runs in an isolated, write-free
+  // researcher; the regulator REVIEWS and may edit the suggested sector before it
+  // is applied. A guided queue walks through every unclassified company.
   const [autoClassifyResult, setAutoClassifyResult] = useState<string | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<CompanyOverview | null>(null);
+  const [reviewQueue, setReviewQueue] = useState<CompanyOverview[]>([]);
+  const [reviewPreview, setReviewPreview] = useState<ClassifyPreview | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewSectorId, setReviewSectorId] = useState<string>("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  // The regulator can assign an EXISTING sector or CREATE a new one (useful when
+  // the researcher suggests a sector that isn't in the list yet).
+  const [reviewMode, setReviewMode] = useState<"existing" | "new">("existing");
+  const [newSector, setNewSector] = useState<{ name: string; description: string; formula: string; activityFormula: string }>(
+    { name: "", description: "", formula: "", activityFormula: "" }
+  );
 
   const [error, setError] = useState<string | null>(null);
 
@@ -368,54 +410,106 @@ export default function CarbonCreditPage() {
     }
   };
 
-  // Ask the AI agent to research each unclassified company on the web and assign
-  // it to the best-matching sector. One company per request keeps each agent turn
-  // within its tool-iteration budget; we refresh the table from the backend after.
-  const autoClassifySectors = async () => {
-    const unassigned = companies.filter(c => !c.sectorId);
-    if (unassigned.length === 0) {
+  // Research ONE company (isolated, write-free researcher) and open the review
+  // modal. No assignment happens here — the regulator confirms it afterwards.
+  const loadReview = async (company: CompanyOverview) => {
+    setReviewTarget(company);
+    setReviewPreview(null);
+    setReviewError(null);
+    setReviewMode("existing");
+    setNewSector({ name: "", description: "", formula: "", activityFormula: "" });
+    setReviewSectorId(company.sectorId != null ? String(company.sectorId) : "");
+    setReviewLoading(true);
+    try {
+      const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+      const res = await fetch(`${aiAgentUrl}/classify/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ companyName: company.companyName ?? company.email }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const data: ClassifyPreview = await res.json();
+      setReviewPreview(data);
+      const initial = data.suggestedSectorId ?? company.sectorId ?? "";
+      setReviewSectorId(initial === "" ? "" : String(initial));
+      // Prefill the "new sector" form from the research, and default to it when the
+      // AI's suggestion doesn't match any existing sector.
+      const suggestedName = (data.summary.suggested_sector || "").trim();
+      setNewSector({
+        name: suggestedName,
+        description: data.summary.business_activity || "",
+        formula: "",
+        activityFormula: "",
+      });
+      if (data.suggestedSectorId == null && suggestedName) setReviewMode("new");
+    } catch {
+      setReviewError("The web researcher could not be reached. You can still pick or create a sector manually below.");
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  // Bulk entry point: walk every unclassified company, reviewing each in turn.
+  const startGuidedClassify = () => {
+    const queue = companies
+      .filter((c) => !c.sectorId)
+      .sort((a, b) => (a.companyName ?? a.email).localeCompare(b.companyName ?? b.email));
+    if (queue.length === 0) {
       setAutoClassifyResult("Every company already has a sector assigned.");
       return;
     }
-    setError(null);
     setAutoClassifyResult(null);
-    setAutoClassifying(true);
-    setAutoClassifyProgress({ done: 0, total: unassigned.length });
+    setReviewQueue(queue);
+    loadReview(queue[0]);
+  };
 
-    const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
-    let failures = 0;
-    for (let i = 0; i < unassigned.length; i++) {
-      const c = unassigned[i];
-      const name = c.companyName ?? c.email;
-      try {
-        const res = await fetch(`${aiAgentUrl}/ask`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            question:
-              `Research what the company "${name}" (companyId ${c.companyId}) does, ` +
-              `then assign it to the single most appropriate existing sector using the ` +
-              `assign_company_sector tool. If no sector clearly fits, leave it unassigned.`,
-          }),
+  const closeReview = () => {
+    setReviewTarget(null);
+    setReviewQueue([]);
+    setReviewPreview(null);
+    setReviewError(null);
+  };
+
+  // Move to the next company in the guided queue, or close when the queue is done.
+  const advanceQueue = () => {
+    const idx = reviewTarget ? reviewQueue.findIndex((c) => c.companyId === reviewTarget.companyId) : -1;
+    const next = idx >= 0 ? reviewQueue[idx + 1] : undefined;
+    if (next) loadReview(next);
+    else closeReview();
+  };
+
+  const confirmReview = async () => {
+    if (!reviewTarget) return;
+    setReviewError(null);
+    setReviewSubmitting(true);
+    try {
+      let sectorId: number;
+      if (reviewMode === "new") {
+        const name = newSector.name.trim();
+        if (!name) { setReviewError("Enter a name for the new sector."); return; }
+        // Create the sector, then assign the company to it.
+        const resp = await axiosInstance.post<Sector>("/sectors", {
+          name,
+          description: newSector.description.trim() || undefined,
+          formula: newSector.formula.trim() || undefined,
+          activityFormula: newSector.activityFormula.trim() || undefined,
         });
-        if (!res.ok) throw new Error(String(res.status));
-      } catch {
-        failures += 1;
+        if (resp.data?.id == null) { setReviewError("Sector was created but no id was returned."); return; }
+        sectorId = resp.data.id;
+        await fetchSectors(); // refresh the dropdown for the rest of the queue
+      } else {
+        if (reviewSectorId === "") { setReviewError("Choose a sector, or switch to “New sector”."); return; }
+        sectorId = Number(reviewSectorId);
       }
-      setAutoClassifyProgress({ done: i + 1, total: unassigned.length });
+      await axiosInstance.patch(`/sectors/companies/${reviewTarget.companyId}`, { sectorId });
+      await fetchCompanies();
+      advanceQueue();
+    } catch (e) {
+      setReviewError(getErrMsg(e, "Failed to apply the classification."));
+    } finally {
+      setReviewSubmitting(false);
     }
-
-    // Reflect whatever the agent persisted on the backend.
-    await fetchCompanies();
-    setAutoClassifying(false);
-    setAutoClassifyProgress(null);
-    const ok = unassigned.length - failures;
-    setAutoClassifyResult(
-      `AI classification finished: processed ${ok}/${unassigned.length} compan${ok === 1 ? "y" : "ies"}` +
-      (failures ? `, ${failures} could not be reached.` : ".") +
-      " Review the assignments below and adjust any that look off."
-    );
   };
 
   // ── Company-view helpers ──────────────────────────────────────────────────
@@ -1051,17 +1145,13 @@ export default function CarbonCreditPage() {
                 </p>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={autoClassifySectors}
-                    disabled={autoClassifying || companies.filter(c => !c.sectorId).length === 0}
-                    title="Research unclassified companies on the web and auto-assign their sector"
+                    onClick={startGuidedClassify}
+                    disabled={companies.filter(c => !c.sectorId).length === 0}
+                    title="Research each unclassified company on the web, then review the suggested sector before it is applied"
                     className="flex items-center gap-2 px-4 py-2 bg-[#009B9E] text-white text-xs font-bold rounded-xl hover:bg-[#007d80] transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                   >
-                    {autoClassifying
-                      ? <Loader2 size={14} className="animate-spin" />
-                      : <Sparkles size={14} />}
-                    {autoClassifying
-                      ? `Classifying ${autoClassifyProgress?.done ?? 0}/${autoClassifyProgress?.total ?? 0}…`
-                      : "Auto-classify (AI)"}
+                    <Sparkles size={14} />
+                    Auto-classify (AI)
                   </button>
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Consumption year</span>
                   <select
@@ -1799,6 +1889,232 @@ export default function CarbonCreditPage() {
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI Auto-classification Review Modal (research → confirm/edit → assign) */}
+        {reviewTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={closeReview}>
+            <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto border border-gray-100" onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="px-7 py-5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#009B9E]/10 flex items-center justify-center">
+                    <ScanSearch size={18} className="text-[#009B9E]" />
+                  </div>
+                  <div>
+                    <h2 className="font-black text-base text-[#005A8C]">Auto-classification review</h2>
+                    <p className="text-[11px] font-semibold text-gray-400">
+                      {reviewTarget.companyName ?? reviewTarget.email}
+                      {reviewQueue.length > 0 && (() => {
+                        const idx = reviewQueue.findIndex((c) => c.companyId === reviewTarget.companyId);
+                        return idx >= 0 ? ` · ${idx + 1} of ${reviewQueue.length}` : "";
+                      })()}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={closeReview} className="p-2 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer">
+                  <X size={18} className="text-gray-500" />
+                </button>
+              </div>
+
+              <div className="p-7 space-y-5">
+                {reviewLoading ? (
+                  <div className="py-10 flex flex-col items-center gap-3 text-center">
+                    <Loader2 size={26} className="text-[#009B9E] animate-spin" />
+                    <p className="text-sm font-bold text-gray-500">
+                      Researching {reviewTarget.companyName ?? reviewTarget.email} on the web…
+                    </p>
+                    <p className="text-xs text-gray-400 font-semibold">Reading public pages in an isolated, write-free researcher.</p>
+                  </div>
+                ) : (
+                  <>
+                    {reviewError && (
+                      <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs font-bold text-amber-700">{reviewError}</div>
+                    )}
+
+                    {reviewPreview && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">What the web scraper found</p>
+                          {(() => {
+                            const v = (reviewPreview.summary.confidence || "low").toLowerCase();
+                            const style = v === "high"
+                              ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                              : v === "medium"
+                              ? "bg-amber-50 text-amber-600 border-amber-100"
+                              : "bg-gray-100 text-gray-500 border-gray-200";
+                            return <span className={`text-[9px] font-extrabold px-2 py-1 rounded-full border uppercase ${style}`}>{v} confidence</span>;
+                          })()}
+                        </div>
+
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Business activity</p>
+                          <p className="text-sm font-semibold text-gray-700">{reviewPreview.summary.business_activity || "—"}</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Industry</p>
+                            <p className="text-sm font-semibold text-gray-700">{reviewPreview.summary.industry || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Suggested sector</p>
+                            <p className="text-sm font-semibold text-gray-700">{reviewPreview.summary.suggested_sector || "—"}</p>
+                          </div>
+                        </div>
+
+                        {reviewPreview.summary.products.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Products</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {reviewPreview.summary.products.map((p, i) => (
+                                <span key={i} className="text-[11px] font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">{p}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {reviewPreview.summary.evidence_urls.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Evidence</p>
+                            <div className="space-y-1">
+                              {reviewPreview.summary.evidence_urls.map((u, i) => (
+                                <a key={i} href={u} target="_blank" rel="noopener noreferrer"
+                                  className="text-[11px] font-semibold text-[#009B9E] hover:underline flex items-center gap-1 truncate">
+                                  <ExternalLink size={11} className="shrink-0" /> <span className="truncate">{u}</span>
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {reviewPreview.summary.notes && (
+                          <div className="p-3 bg-amber-50/60 border border-amber-100 rounded-xl text-[11px] font-semibold text-amber-800">
+                            <span className="font-extrabold uppercase tracking-wider text-[9px] block mb-0.5">Researcher note</span>
+                            {reviewPreview.summary.notes}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="pt-2 border-t border-gray-100 space-y-3">
+                      <p className="text-xs font-bold text-gray-500">
+                        Review the findings. <span className="text-[#005A8C]">If the suggested sector isn&apos;t right, pick another or create a new one</span> before confirming — the web scraper can be inaccurate.
+                      </p>
+
+                      {/* Existing vs. new sector */}
+                      <div className="flex gap-2 bg-gray-50 border border-gray-200 rounded-xl p-1 w-full">
+                        {(["existing", "new"] as const).map((m) => (
+                          <button
+                            key={m} type="button" onClick={() => setReviewMode(m)}
+                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                              reviewMode === m ? "bg-white text-[#005A8C] shadow-sm" : "text-gray-400 hover:text-gray-600"
+                            }`}
+                          >
+                            {m === "existing" ? "Existing sector" : "New sector"}
+                          </button>
+                        ))}
+                      </div>
+
+                      {reviewMode === "existing" ? (
+                        <div>
+                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1.5">Assign to sector</label>
+                          <select
+                            value={reviewSectorId}
+                            onChange={(e) => setReviewSectorId(e.target.value)}
+                            className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all bg-white cursor-pointer"
+                          >
+                            <option value="">— Select a sector —</option>
+                            {sortedSectors.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}{reviewPreview?.suggestedSectorId === s.id ? "  (suggested)" : ""}
+                              </option>
+                            ))}
+                          </select>
+                          {reviewPreview?.suggestedSectorId != null && reviewSectorId !== "" && Number(reviewSectorId) !== reviewPreview.suggestedSectorId && (
+                            <p className="text-[11px] font-semibold text-[#F28C28] mt-1.5 flex items-center gap-1">
+                              <AlertTriangle size={11} /> You&apos;re overriding the AI suggestion.
+                            </p>
+                          )}
+                          {reviewPreview && reviewPreview.suggestedSectorId == null && (reviewPreview.summary.suggested_sector || "").trim() && (
+                            <p className="text-[11px] font-semibold text-[#F28C28] mt-1.5 flex items-center gap-1">
+                              <AlertTriangle size={11} /> The AI suggested &ldquo;{reviewPreview.summary.suggested_sector}&rdquo;, which isn&apos;t an existing sector — switch to <span className="underline">New sector</span> to create it.
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1.5">New sector name</label>
+                            <input
+                              value={newSector.name}
+                              onChange={(e) => setNewSector({ ...newSector, name: e.target.value })}
+                              placeholder="e.g. Technology Services"
+                              className="w-full px-4 py-3 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1.5">Description (optional)</label>
+                            <textarea
+                              rows={2}
+                              value={newSector.description}
+                              onChange={(e) => setNewSector({ ...newSector, description: e.target.value })}
+                              placeholder="What this sector covers"
+                              className="w-full px-4 py-3 text-sm font-semibold border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all resize-none"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1.5">Emission formula</label>
+                              <input
+                                value={newSector.formula}
+                                onChange={(e) => setNewSector({ ...newSector, formula: e.target.value })}
+                                placeholder="{energy} * 0.233"
+                                className="w-full px-4 py-3 text-xs font-mono border border-gray-200 rounded-xl outline-none focus:border-[#009B9E] focus:ring-2 focus:ring-[#009B9E]/10 transition-all"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1.5">Activity formula</label>
+                              <input
+                                value={newSector.activityFormula}
+                                onChange={(e) => setNewSector({ ...newSector, activityFormula: e.target.value })}
+                                placeholder="{output_tonnes}"
+                                className="w-full px-4 py-3 text-xs font-mono border border-gray-200 rounded-xl outline-none focus:border-[#005A8C] focus:ring-2 focus:ring-[#005A8C]/10 transition-all"
+                              />
+                            </div>
+                          </div>
+                          <p className="text-[10px] font-semibold text-gray-400">
+                            Formulas are optional — you can refine them later in the Sector Formulas tab.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3 pt-1">
+                        {reviewQueue.length > 0 && (
+                          <button type="button" onClick={advanceQueue} disabled={reviewSubmitting}
+                            className="px-5 py-3 border border-gray-200 text-gray-600 font-bold rounded-2xl hover:bg-gray-50 transition-all disabled:opacity-50 cursor-pointer">
+                            Skip
+                          </button>
+                        )}
+                        <button type="button" onClick={closeReview} disabled={reviewSubmitting}
+                          className="flex-1 py-3 border border-gray-200 text-gray-600 font-bold rounded-2xl hover:bg-gray-50 transition-all disabled:opacity-50 cursor-pointer">
+                          {reviewQueue.length > 0 ? "Stop" : "Cancel"}
+                        </button>
+                        <button type="button" onClick={confirmReview}
+                          disabled={reviewSubmitting || (reviewMode === "existing" ? reviewSectorId === "" : newSector.name.trim() === "")}
+                          className="flex-1 py-3 bg-[#005A8C] text-white font-bold rounded-2xl hover:bg-[#004a73] transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2">
+                          {reviewSubmitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                          {reviewSubmitting
+                            ? (reviewMode === "new" ? "Creating…" : "Assigning…")
+                            : (reviewMode === "new" ? "Create & assign" : "Confirm")}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

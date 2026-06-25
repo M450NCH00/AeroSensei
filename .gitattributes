@@ -1,0 +1,4 @@
+# Keep shell/cron scripts LF so they work in Linux containers regardless of the
+# host's git autocrlf setting. A trailing CR silently breaks cron jobs.
+s3/cron-backup text eol=lf
+*.sh text eol=lf
