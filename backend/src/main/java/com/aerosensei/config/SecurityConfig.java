@@ -43,7 +43,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**", "/actuator/health", "/api/sensors/search", "/api/companies/**").permitAll()
+                .requestMatchers("/api/auth/**", "/actuator/health", "/api/sensors/search", "/api/companies/**", "/api/sensors/ingest").permitAll()
                 // Any other endpoint you build later will require authentication
                 .anyRequest().authenticated()
             )

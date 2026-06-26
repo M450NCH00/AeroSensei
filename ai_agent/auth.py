@@ -9,6 +9,8 @@ the shared secret). The agent:
 
 The agent never holds DB credentials and never elevates privileges.
 """
+import time
+
 import jwt
 
 import config
@@ -64,3 +66,33 @@ def authenticate(request) -> tuple[str, dict]:
     token = extract_token(request)
     claims = authorize(token)
     return token, claims
+
+
+def mint_system_token(
+    email: str | None = None,
+    role: str | None = None,
+    ttl_seconds: int | None = None,
+) -> str:
+    """Mint a short-lived system JWT for autonomous (no-human) backend calls.
+
+    Used by the enforcement sweep: when no caller cookie exists, the agent acts
+    under a government identity. Signed with the SAME shared secret the backend
+    verifies with (config.JWT_SECRET) and carrying the backend's expected claim
+    shape (subject = email, roles = [...]). The backend records `email` as the
+    fine's issued_by, keeping the autonomous action auditable.
+
+    This is the ONLY place the agent originates its own identity; it never
+    elevates a real caller's privileges.
+    """
+    email = email or config.ENFORCEMENT_SYSTEM_EMAIL
+    role = role or config.ENFORCEMENT_ROLE
+    ttl = ttl_seconds if ttl_seconds is not None else config.ENFORCEMENT_TOKEN_TTL
+    now = int(time.time())
+    payload = {
+        "sub": email,
+        "roles": [role],
+        "permissions": [],
+        "iat": now,
+        "exp": now + ttl,
+    }
+    return jwt.encode(payload, config.JWT_SECRET, algorithm="HS256")

@@ -10,18 +10,20 @@ Notes: You can adjust the variables in `constants.py` to get the desired data. D
 cd script
 python train.py
 ```
-By default, the script train 5 models that forecast the pm2.5 values in a specific location for the next 1, 3, 6, 12, and 24 hours.
-
-## Access to Trained Models and Extracted Data
-Models and csv files are uploaded to the following HuggingFace Collection due to large file size:
-```url
-https://huggingface.co/collections/CLXYee/aerosense-forecasting-model
+Notes: Flag `--pm` and `--hr` to toggle the desired forecast pm value and hours ahead. `--pm` takes in integer values of 25 and 10, while `--hr` takes in integer values of desired hours ahead. <br>
+Example:
+```bash
+python train.py --pm 25 --hr 1
 ```
 
-## To Run Forecast Model with Uvicorn
+## Running Forecast
+1. In testing mode (Not connected to endpoint)
 ```bash
-python -m venv venv   
-venv\Scripts\activate   
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+cd script
+python test.py
+```
+2. EConnecting to endpoint
+```bash
+cd script
+python main.py
 ```

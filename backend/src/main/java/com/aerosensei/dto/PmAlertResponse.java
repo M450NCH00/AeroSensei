@@ -1,6 +1,7 @@
 package com.aerosensei.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /** A PM-breach alert enriched with sensor location + owning company, plus whether
@@ -15,6 +16,7 @@ public class PmAlertResponse {
     private BigDecimal measuredValue;
     private BigDecimal thresholdValue;
     private String alertLevel;
+    private LocalDate alertDate;
     private LocalDateTime triggeredAt;
     private LocalDateTime resolvedAt;
     private String note;
@@ -46,6 +48,9 @@ public class PmAlertResponse {
 
     public String getAlertLevel() { return alertLevel; }
     public void setAlertLevel(String alertLevel) { this.alertLevel = alertLevel; }
+
+    public LocalDate getAlertDate() { return alertDate; }
+    public void setAlertDate(LocalDate alertDate) { this.alertDate = alertDate; }
 
     public LocalDateTime getTriggeredAt() { return triggeredAt; }
     public void setTriggeredAt(LocalDateTime triggeredAt) { this.triggeredAt = triggeredAt; }

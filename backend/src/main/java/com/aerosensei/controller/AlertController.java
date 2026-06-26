@@ -4,6 +4,7 @@ import com.aerosensei.dto.FineResponse;
 import com.aerosensei.dto.ImposeFineRequest;
 import com.aerosensei.dto.PmAlertResponse;
 import com.aerosensei.service.AlertService;
+import com.aerosensei.service.PmAlertSchedulerService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,9 @@ public class AlertController {
 
     @Autowired
     private AlertService alertService;
+
+    @Autowired
+    private PmAlertSchedulerService pmAlertSchedulerService;
 
     /** GET /api/alerts — all PM-breach alerts, newest first. */
     @GetMapping
@@ -50,6 +54,18 @@ public class AlertController {
     @PreAuthorize("hasAnyRole('COMPANY','GOVERNMENT','ADMIN')")
     public ResponseEntity<List<FineResponse>> myFines(@AuthenticationPrincipal String email) {
         return ResponseEntity.ok(alertService.listFinesForCompany(email));
+    }
+
+    /**
+     * POST /api/alerts/evaluate-now — demo: run the daily PM evaluation for the
+     * current day immediately (writing breach/warning rows for today) and auto-issue
+     * fines for every BREACHED, un-fined alert. Returns how many of each were created.
+     */
+    @PostMapping("/evaluate-now")
+    public ResponseEntity<?> evaluateNow(@AuthenticationPrincipal String email) {
+        int alertsWritten = pmAlertSchedulerService.evaluateNow();
+        int finesIssued = alertService.autoFineBreaches(email);
+        return ResponseEntity.ok(Map.of("alertsWritten", alertsWritten, "finesIssued", finesIssued));
     }
 
     /** POST /api/alerts/{alertId}/fine — impose a fine against a breach alert. */

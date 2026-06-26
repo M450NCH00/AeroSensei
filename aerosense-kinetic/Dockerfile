@@ -6,7 +6,12 @@ FROM node:20-slim AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci
+# Retry on transient registry resets (ECONNRESET) instead of failing the whole build
+RUN npm ci --no-audit --no-fund \
+      --fetch-retries=5 \
+      --fetch-retry-mintimeout=20000 \
+      --fetch-retry-maxtimeout=120000 \
+      --fetch-timeout=600000
 
 COPY . ./
 RUN npm run build

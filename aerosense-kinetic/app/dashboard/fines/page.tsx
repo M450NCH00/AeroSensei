@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, Gavel, X, Loader2, ShieldAlert, MapPin,
-  Building2, CheckCircle2, Ban, Receipt,
+  Building2, CheckCircle2, Ban, Receipt, Sparkles,
 } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
 import { useAuth } from "@/app/context/AuthContext";
@@ -19,6 +19,7 @@ interface PmAlert {
   measuredValue: number | null;
   thresholdValue: number | null;
   alertLevel: string | null;
+  alertDate: string | null;
   triggeredAt: string | null;
   resolvedAt: string | null;
   note: string | null;
@@ -56,6 +57,10 @@ export default function FinesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Demo: run the daily PM evaluation now and auto-fine breaches.
+  const [evaluating, setEvaluating] = useState(false);
+  const [evalMsg, setEvalMsg] = useState<string | null>(null);
+
   // Impose-fine modal
   const [fineTarget, setFineTarget] = useState<PmAlert | null>(null);
   const [fineAmount, setFineAmount] = useState("");
@@ -81,6 +86,25 @@ export default function FinesPage() {
       setError(e.response?.data?.message ?? "Failed to load alerts.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Demo: evaluate today's PM readings now (writes alerts for today) and auto-fine
+  // every BREACHED, un-fined alert — no waiting for the midnight cron.
+  const runEvaluateNow = async () => {
+    setEvaluating(true);
+    setEvalMsg(null);
+    setError(null);
+    try {
+      const res = await axiosInstance.post<{ alertsWritten: number; finesIssued: number }>("/alerts/evaluate-now");
+      const { alertsWritten, finesIssued } = res.data;
+      setEvalMsg(`Evaluation complete — ${alertsWritten} alert(s) recorded for today, ${finesIssued} fine(s) issued.`);
+      await fetchAll();
+    } catch (e) {
+      const msg = (e as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setError(msg ?? "Failed to run the evaluation.");
+    } finally {
+      setEvaluating(false);
     }
   };
 
@@ -172,13 +196,33 @@ export default function FinesPage() {
               {isGov ? "PM Breach Alerts & Penalties" : "Your Sites' PM Breaches & Penalties"}
             </p>
           </div>
-          {loading && <Loader2 size={18} className="text-gray-300 animate-spin" />}
+          <div className="flex items-center gap-3">
+            {isGov && (
+              <button
+                onClick={runEvaluateNow}
+                disabled={evaluating}
+                title="Demo: evaluate today's PM readings now and auto-issue fines for breaches"
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#009B9E] text-white text-sm font-bold rounded-xl hover:bg-[#007d80] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {evaluating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                {evaluating ? "Evaluating…" : "Evaluate today (demo)"}
+              </button>
+            )}
+            {loading && <Loader2 size={18} className="text-gray-300 animate-spin" />}
+          </div>
         </div>
 
         {error && (
           <div className="p-4 bg-red-50 border border-red-100 rounded-2xl text-sm font-bold text-red-700 flex justify-between items-center">
             <span>{error}</span>
             <button onClick={() => setError(null)} className="cursor-pointer"><X size={16} /></button>
+          </div>
+        )}
+
+        {evalMsg && (
+          <div className="p-4 bg-[#009B9E]/5 border border-[#009B9E]/20 rounded-2xl text-sm font-bold text-[#007d80] flex justify-between items-center">
+            <span className="flex items-center gap-2"><Sparkles size={15} className="shrink-0" />{evalMsg}</span>
+            <button onClick={() => setEvalMsg(null)} className="cursor-pointer"><X size={16} /></button>
           </div>
         )}
 
@@ -256,7 +300,12 @@ export default function FinesPage() {
                         {a.alertLevel ?? "—"}
                       </span>
                     </div>
-                    <span className="col-span-2 text-xs font-semibold text-gray-500">{fmtDate(a.triggeredAt)}</span>
+                    <div className="col-span-2">
+                      <p className="text-xs font-semibold text-gray-500">{fmtDate(a.triggeredAt)}</p>
+                      {a.alertDate && (
+                        <p className="text-[10px] font-bold text-gray-400">for {a.alertDate}</p>
+                      )}
+                    </div>
                     <div className="col-span-2 flex justify-end">
                       {a.fined ? (
                         <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-full flex items-center gap-1">

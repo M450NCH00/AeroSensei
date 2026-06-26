@@ -114,6 +114,7 @@ services:
       - ./postgresql/query/compliance_cycles_initialization.sql:/docker-entrypoint-initdb.d/12_compliance_cycles_initialization.sql
       - ./postgresql/query/carbon_allocations_seed.sql:/docker-entrypoint-initdb.d/13_carbon_allocations_seed.sql
       - ./postgresql/query/fines_initialization.sql:/docker-entrypoint-initdb.d/14_fines_initialization.sql
+      - ./postgresql/query/chat_initialization.sql:/docker-entrypoint-initdb.d/15_chat_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
@@ -173,7 +174,16 @@ services:
       - DB_USER=admin
       - DB_PASSWORD=ChangeThisPassword123!
       - JWT_SECRET=your-hackathon-super-secret-key-xyz123
+      # Shared internal secret for the backend -> agent hand-offs (/alert, /enforce).
+      # Must match the ai-agent's INTERNAL_API_SECRET below.
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+      # Enable the agent auto-fine hand-off after the nightly PM check (off by default).
+      - ENFORCEMENT_AUTO_FINE=${ENFORCEMENT_AUTO_FINE:-false}
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - INFLUX_ORG:my-org
+      - INFLUX_TOKEN:my-super-secret-admin-token-12345
+      - INFLUX_URL:http://influxdb:8086
+      - INFLUX_BUCKET:sensors_data
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"'"]
       interval: 15s
@@ -193,6 +203,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       # --- LLM provider (configurable; switch to bedrock on the AWS migration) ---
       - LLM_PROVIDER=litellm
@@ -210,11 +222,23 @@ services:
       - AGENT_ALLOWED_ROLES=GOVERNMENT,ADMIN
       - FRONTEND_ORIGIN=http://localhost:3000
       # --- Internal alerting (backend -> agent -> telegram) ---
-      # Shared secret the backend must send (X-Internal-Secret) to trigger /alert.
+      # Shared secret the backend must send (X-Internal-Secret) to trigger /alert and /enforce.
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+      # --- Autonomous enforcement: agent auto-issues fines for BREACHED alerts ---
+      # Off by default. Flip to true (here AND on the backend) to enable the nightly
+      # auto-fine sweep; the agent mints a GOVERNMENT system token from JWT_SECRET.
+      - ENFORCEMENT_AUTO_FINE=${ENFORCEMENT_AUTO_FINE:-false}
       # Telegram bot push endpoint + its NOTIFY_SECRET (must match below).
       - TELEGRAM_NOTIFY_URL=http://telegram-bot:5002/notify
       - TELEGRAM_NOTIFY_SECRET=${NOTIFY_SECRET:-}
+      # Public URL the browser uses to download generated PDF reports (matches the
+      # host-exposed port and the frontend's NEXT_PUBLIC_AI_AGENT_URL).
+      - AGENT_PUBLIC_URL=http://localhost:5001
+      # MinIO (S3) — where generated PDF reports are stored.
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_REPORTS_BUCKET=reports
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -318,6 +342,7 @@ services:
       /bin/sh -c "
       /usr/bin/mc alias set dockerminio http://minio:9000 minioadmin minioadmin123;
       /usr/bin/mc mb dockerminio/influx-backups;
+      /usr/bin/mc mb dockerminio/reports;
       exit 0;
       "
 
@@ -356,6 +381,7 @@ services:
       - PG_DB=postgresdb
       - PG_USER=admin
       - PG_PASS=ChangeThisPassword123!
+      - BACKEND_API_URL=http://backend:8081/api/sensors/ingest
     depends_on:
       - influxdb
       - postgres

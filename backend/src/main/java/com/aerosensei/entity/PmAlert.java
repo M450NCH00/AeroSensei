@@ -2,6 +2,7 @@ package com.aerosensei.entity;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -32,6 +33,10 @@ public class PmAlert {
     @Column(name = "alert_level", length = 20)
     private String alertLevel;
 
+    // Which calendar day the breach/warning is for (the day the evaluator averaged).
+    @Column(name = "alert_date")
+    private LocalDate alertDate;
+
     @Column(name = "triggered_at", insertable = false, updatable = false)
     private LocalDateTime triggeredAt;
 
@@ -58,6 +63,9 @@ public class PmAlert {
 
     public String getAlertLevel() { return alertLevel; }
     public void setAlertLevel(String alertLevel) { this.alertLevel = alertLevel; }
+
+    public LocalDate getAlertDate() { return alertDate; }
+    public void setAlertDate(LocalDate alertDate) { this.alertDate = alertDate; }
 
     public LocalDateTime getTriggeredAt() { return triggeredAt; }
 
