@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { X, Activity, BrainCircuit, AlertCircle } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
+import mlAxiosInstance from "@/app/api/mlAxiosInstance";
 import TelemetryChart, { HistoryDataPoint } from "./TelemetryChart";
 import { SiteData } from "./SitesTable";
 
@@ -48,13 +49,12 @@ export default function SiteDetailsModal({ site, onClose }: SiteDetailsModalProp
     setIsForecasting(true);
     setForecastError(null);
     try {
-      // Notice we use standard fetch to hit port 8000 (your Python AI backend)
-      const res = await fetch(`http://localhost:8000/predict/${site.siteId}`);
-      if (!res.ok) throw new Error("AI Prediction Engine unavailable");
+      // Look how clean this is! No base URL, just the specific route.
+      const res = await mlAxiosInstance.get(`/predict/${site.siteId}`);
       
-      const data = await res.json();
+      // Axios already unwrapped the JSON into res.data
+      const data = res.data; 
       
-      // Parse the array: [PM2.5(1h), PM2.5(3h), PM10(1h), PM10(3h)]
       setForecastData({
         pm25_1h: parseFloat(data.prediction[0]),
         pm25_3h: parseFloat(data.prediction[1]),
@@ -62,6 +62,7 @@ export default function SiteDetailsModal({ site, onClose }: SiteDetailsModalProp
         pm10_3h: parseFloat(data.prediction[3]),
       });
     } catch (error) {
+      console.error("ML API Error:", error);
       setForecastError("AI model failed to respond.");
     } finally {
       setIsForecasting(false);

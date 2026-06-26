@@ -352,7 +352,7 @@ public class SensorService {
             double maxAvgPm25 = -1.0;
             double maxAvgPm10 = -1.0;
 
-            // Track the absolute worst-case peaks in this cluster (RESTORED)
+            // Track the absolute worst-case peaks in this cluster
             double absolutePeakPm25 = -1.0;
             double absolutePeakPm10 = -1.0;
 
@@ -369,11 +369,11 @@ public class SensorService {
                 if (site.getAvgPm25() != null) maxAvgPm25 = Math.max(maxAvgPm25, site.getAvgPm25());
                 if (site.getAvgPm10() != null) maxAvgPm10 = Math.max(maxAvgPm10, site.getAvgPm10());
 
-                // Find the highest absolute peak among all sites in this cluster (RESTORED)
+                // Find the highest absolute peak among all sites in this cluster
                 if (site.getMaxPm25() != null) absolutePeakPm25 = Math.max(absolutePeakPm25, site.getMaxPm25());
                 if (site.getMaxPm10() != null) absolutePeakPm10 = Math.max(absolutePeakPm10, site.getMaxPm10());
 
-                // Escalate the cluster state based on the worst site (Averages only logic is preserved!)
+                // Escalate the cluster state based on the worst site
                 if (site.getState() == SiteState.BREACHED) {
                     clusterState = SiteState.BREACHED;
                 } else if (site.getState() == SiteState.WARNING && clusterState != SiteState.BREACHED) {
@@ -403,8 +403,12 @@ public class SensorService {
                 finalBreachType = clusterBreachTypes.iterator().next();
             }
 
+            // Determine the dynamic Site Name
+            String resolvedSiteName = (validSiteCount == 1) ? cellSites.get(0).getSiteName() : "Regional Area";
+
             // Build the final DTO
             ClusterMaxDTO clusterMax = new ClusterMaxDTO();
+            clusterMax.setSiteName(resolvedSiteName); // Added newly resolved name
             clusterMax.setCenterLat(BigDecimal.valueOf(centroidLat));
             clusterMax.setCenterLon(BigDecimal.valueOf(centroidLon));
 
@@ -412,7 +416,7 @@ public class SensorService {
             if (maxAvgPm25 >= 0) clusterMax.setMaxAvgPm25(Math.round(maxAvgPm25 * 100.0) / 100.0);
             if (maxAvgPm10 >= 0) clusterMax.setMaxAvgPm10(Math.round(maxAvgPm10 * 100.0) / 100.0);
 
-            // Peaks (RESTORED)
+            // Peaks
             if (absolutePeakPm25 >= 0) clusterMax.setMaxPeakPm25(Math.round(absolutePeakPm25 * 100.0) / 100.0);
             if (absolutePeakPm10 >= 0) clusterMax.setMaxPeakPm10(Math.round(absolutePeakPm10 * 100.0) / 100.0);
 

@@ -10,6 +10,7 @@ import axiosInstance from "../api/axiosInstance";
 
 // 1. UPDATED INTERFACE: Matches the new backend ClusterMaxDTO exactly
 interface ClusterMaxDTO {
+  siteName: string;
   centerLat: number;
   centerLon: number;
   maxAvgPm25: number;
@@ -149,7 +150,7 @@ export default function AeroMap() {
                   {/* HEADER: Title and Dynamic Badge (Link Removed) */}
                   <div className="mb-3 border-b border-gray-100 pb-2">
                     <h3 className="font-bold text-[#005A8C] text-sm leading-tight">
-                      {isCluster ? "Regional Area" : "Live Sensor Node"}
+                      {cluster.siteName}
                     </h3>
                     {isCluster && (
                       <span className="inline-block mt-1 bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-md font-semibold tracking-wide">
