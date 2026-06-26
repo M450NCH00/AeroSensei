@@ -211,31 +211,15 @@ export default function AIAssistantPage() {
       <div className="relative z-10 flex-1 flex flex-col min-w-0">
         
         {/* FANCY UPGRADE: Floating Glass Header */}
-        <header className="flex-shrink-0 bg-white/70 backdrop-blur-2xl p-4 md:p-6 border border-white/60 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex justify-between items-center transition-all duration-500 hover:shadow-[0_8px_30px_rgb(0,90,140,0.05)] mb-2">
-          <div className="flex items-center gap-4">
-            {!sidebarOpen && (
-              <button
-                onClick={() => setSidebarOpen(true)}
-                title="Show chat history"
-                className="p-2 rounded-xl bg-white/50 border border-white/60 text-gray-500 hover:bg-white hover:text-[#005A8C] hover:shadow-sm transition-all cursor-pointer"
-              >
-                <PanelLeftOpen size={18} />
-              </button>
-            )}
-            <div>
-              <h1 className="text-xl font-black text-[#005A8C] tracking-tight flex items-center gap-2">
-                AI Diagnostic Space
-                <span className="relative flex h-2.5 w-2.5 ml-1 sm:ml-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#009B9E] opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#009B9E]"></span>
-                </span>
-              </h1>
-              <p className="hidden sm:block text-[10px] font-black text-gray-400 mt-1 uppercase tracking-widest bg-gray-50/50 border border-gray-200/50 px-2 py-0.5 rounded-md w-max">
-                Predictive Language Assistant Modeling
-              </p>
-            </div>
-          </div>
-        </header>
+        {!sidebarOpen && (
+          <button 
+            onClick={() => setSidebarOpen(true)}
+            className="absolute top-6 left-6 z-30 p-2.5 bg-white/60 backdrop-blur-md border border-white/50 text-[#005A8C] rounded-xl shadow-sm hover:bg-white hover:shadow-md transition-all duration-300"
+            title="Open History"          
+          >
+            <PanelLeftOpen size={20} />
+          </button>
+        )}
 
         {/* Chat Canvas */}
         <div className="flex-1 overflow-y-auto px-2 space-y-6 flex flex-col [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300/50 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-400/60">
