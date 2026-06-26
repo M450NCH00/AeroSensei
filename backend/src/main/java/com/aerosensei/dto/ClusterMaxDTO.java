@@ -7,6 +7,7 @@ import java.io.Serializable;
 import java.math.BigDecimal;
 
 public class ClusterMaxDTO implements Serializable {
+    private String siteName;
     private BigDecimal centerLat;
     private BigDecimal centerLon;
     private Double maxAvgPm25;
@@ -19,6 +20,9 @@ public class ClusterMaxDTO implements Serializable {
 
     // Constructors, Getters, and Setters
     public ClusterMaxDTO() {};
+
+    public String getSiteName() { return siteName; }
+    public void setSiteName(String siteName) { this.siteName = siteName; }
 
     public BigDecimal getCenterLat() { return centerLat; }
     public void setCenterLat(BigDecimal centerLat) { this.centerLat = centerLat; }

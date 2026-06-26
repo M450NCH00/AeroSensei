@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import axiosInstance from "../api/axiosInstance";
 import { SiteSensor15MinDTO } from "./SitesDataManager";
+import RollingNumber from "./RollingNumber"; // 1. Import the new component!
 
 const getStateColor = (state: "SAFE" | "WARNING" | "BREACHED") => {
   switch (state) {
@@ -22,19 +23,15 @@ const formatBreachType = (type: string) => {
 };
 
 export default function CriticalNodesList() {
-  // 2. Update state to use new DTO
   const [criticalSites, setCriticalSites] = useState<SiteSensor15MinDTO[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Sync tracking states
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [timeAgo, setTimeAgo] = useState<string>("Syncing...");
 
-  // Wrapped in useCallback for safe interval usage
   const fetchCriticalNodes = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 3. Update the generic type for the axios call
       const response = await axiosInstance.get<SiteSensor15MinDTO[]>("/sensors/area/5/critical");
       setCriticalSites(response.data);
       setLastSync(new Date());
@@ -45,14 +42,12 @@ export default function CriticalNodesList() {
     }
   }, []);
 
-  // 1. Initial load & Auto-refresh interval (60 seconds)
   useEffect(() => {
     fetchCriticalNodes();
     const fetchInterval = setInterval(fetchCriticalNodes, 300000);
     return () => clearInterval(fetchInterval);
   }, [fetchCriticalNodes]);
 
-  // 2. Local Timer string updater (10 seconds)
   useEffect(() => {
     if (!lastSync) return;
     
@@ -70,7 +65,6 @@ export default function CriticalNodesList() {
   return (
     <div className="flex-1 flex flex-col min-h-0 relative">
       
-      {/* HEADER: Added justify-between and the Sync Button */}
       <div className="flex justify-between items-center mb-3">
         <h2 className="font-black text-base text-gray-800 flex items-center gap-2 tracking-tight">
           <AlertTriangle size={18} className="text-[#F28C28]" />
@@ -90,7 +84,6 @@ export default function CriticalNodesList() {
       
       <div className="space-y-3 overflow-y-auto flex-1 pr-1">
         
-        {/* Only show the full loader if we have NO data yet (first load) */}
         {isLoading && criticalSites.length === 0 ? (
           <div className="flex items-center justify-center h-24 text-gray-400">
             <Loader2 className="animate-spin" size={24} />
@@ -101,12 +94,10 @@ export default function CriticalNodesList() {
           </div>
         ) : (
           criticalSites.map((site, index) => (
-            // 4. Using a composite key since sensorId is gone (adding index fallback just in case of duplicates)
             <div key={`${site.companyName}-${site.siteName}-${index}`} className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm flex flex-col gap-2 hover:border-gray-300 transition-colors">
               
               <div className="flex justify-between items-start">
                 <div className="flex flex-col">
-                  {/* 5. Using siteName and companyName instead of locationName */}
                   <span className="font-bold text-sm text-gray-800 truncate max-w-[170px]">
                     {site.siteName || "Unknown Node"}
                   </span>
@@ -125,11 +116,17 @@ export default function CriticalNodesList() {
                   <div className="flex justify-between items-end">
                     <div>
                       <p className="text-[9px] text-gray-500 font-semibold">15m Avg</p>
-                      <p className="text-sm font-black text-gray-800 leading-none">{site.avgPm25}</p>
+                      <p className="text-sm font-black text-gray-800 leading-none">
+                        {/* 2. Replaced static text with RollingNumber */}
+                        <RollingNumber value={site.avgPm25} decimals={1} />
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className="text-[9px] text-gray-500 font-semibold">Peak</p>
-                      <p className="text-sm font-black text-gray-800 leading-none">{site.maxPm25}</p>
+                      <p className="text-sm font-black text-gray-800 leading-none">
+                        {/* 2. Replaced static text with RollingNumber */}
+                        <RollingNumber value={site.maxPm25} decimals={1} />
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -139,11 +136,17 @@ export default function CriticalNodesList() {
                   <div className="flex justify-between items-end">
                     <div>
                       <p className="text-[9px] text-gray-500 font-semibold">15m Avg</p>
-                      <p className="text-sm font-black text-gray-800 leading-none">{site.avgPm10}</p>
+                      <p className="text-sm font-black text-gray-800 leading-none">
+                        {/* 2. Replaced static text with RollingNumber */}
+                        <RollingNumber value={site.avgPm10} decimals={1} />
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className="text-[9px] text-gray-500 font-semibold">Peak</p>
-                      <p className="text-sm font-black text-gray-800 leading-none">{site.maxPm10}</p>
+                      <p className="text-sm font-black text-gray-800 leading-none">
+                        {/* 2. Replaced static text with RollingNumber */}
+                        <RollingNumber value={site.maxPm10} decimals={1} />
+                      </p>
                     </div>
                   </div>
                 </div>
