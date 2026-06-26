@@ -16,26 +16,27 @@ export default function AIChatMessage({ message }: AIChatMessageProps) {
   const isBot = message.role === "assistant";
 
   return (
-    <div className={`flex gap-4 w-full max-w-3xl mx-auto ${isBot ? "" : "flex-row-reverse"}`}>
+    <div className={`flex gap-4 w-full max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-500 ${isBot ? "" : "flex-row-reverse"}`}>
+      
       {/* Avatar */}
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border shadow-2xs ${
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border transition-all hover:scale-105 shadow-sm ${
         isBot 
-          ? "bg-[#005A8C] border-[#005A8C] text-white" 
-          : "bg-white border-gray-200 text-gray-600"
+          ? "bg-gradient-to-br from-[#005A8C] to-[#009B9E] border-transparent text-white shadow-[0_0_15px_rgba(0,155,158,0.3)]" 
+          : "bg-white/80 backdrop-blur-xl border-white text-[#005A8C]"
       }`}>
-        {isBot ? <Bot size={18} /> : <User size={18} />}
+        {isBot ? <Bot size={20} /> : <User size={20} />}
       </div>
 
       {/* Message Bubble */}
       <div className={`flex flex-col max-w-[80%] ${isBot ? "items-start" : "items-end"}`}>
-        <div className={`p-4 rounded-2xl text-sm leading-relaxed ${
+        <div className={`p-4 sm:p-5 rounded-3xl text-sm leading-relaxed tracking-wide shadow-sm ${
           isBot 
-            ? "bg-white border border-gray-100 text-gray-800 shadow-2xs" 
-            : "bg-[#005A8C] text-white font-medium shadow-2xs"
+            ? "bg-white/70 backdrop-blur-2xl border border-white/80 text-gray-800 rounded-tl-sm hover:bg-white/80 transition-colors" 
+            : "bg-gradient-to-br from-[#005A8C] to-[#0070ab] text-white font-medium rounded-tr-sm shadow-[0_8px_30px_rgba(0,90,140,0.15)]"
         }`}>
           <p className="whitespace-pre-wrap">{message.content}</p>
         </div>
-        <span className="text-[10px] font-bold text-gray-400 mt-1.5 px-1 tracking-wide">
+        <span className="text-[10px] font-bold text-gray-400 mt-2 px-2 tracking-widest uppercase">
           {message.timestamp}
         </span>
       </div>
