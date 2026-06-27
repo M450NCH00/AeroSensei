@@ -3,23 +3,17 @@ import RegisterSiteManager from "../../components/RegisterSiteManager";
 
 export default function RegisterSitePage() {
   return (
-    <div className="p-8 h-full min-h-screen bg-[#F8FAFC] flex flex-col gap-6 relative select-none">
+    <div className="p-4 md:p-8 h-screen bg-[#F1F5F9] relative flex flex-col select-none overflow-hidden">
       
-      {/* Top Banner Header */}
-      <div className="bg-[#005A8C] rounded-[2rem] p-8 shadow-md relative overflow-hidden flex-shrink-0">
-        <div className="absolute top-[-50%] right-[-10%] w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-black text-white tracking-tight">Register Company Site</h1>
-            <p className="text-[#009B9E] font-bold text-sm tracking-widest uppercase mt-1">
-              Infrastructure Deployment
-            </p>
-          </div>
-        </div>
+      {/* THE AMBIENT AURA BACKGROUND */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[-10%] left-[-10%] w-[40rem] h-[40rem] bg-[#009B9E]/20 rounded-full mix-blend-multiply opacity-60 animate-blob-shift" />
+        <div className="absolute top-[30%] right-[-10%] w-[35rem] h-[35rem] bg-[#005A8C]/15 rounded-full mix-blend-multiply opacity-60 animate-blob-shift animation-delay-2000" />
+        <div className="absolute bottom-[-10%] left-[20%] w-[40rem] h-[40rem] bg-[#009B9E]/10 rounded-full mix-blend-multiply opacity-50 animate-blob-shift animation-delay-4000" />
       </div>
 
-      {/* Main Interactive Workspace */}
-      <div className="flex-1 h-full min-h-[600px]">
+      {/* Holographic Canvas - Stretches to fill the entire workspace */}
+      <div className="relative z-10 flex-1 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.03)] border border-white/60 bg-white/70 backdrop-blur-2xl flex flex-col overflow-hidden transition-all duration-500 hover:shadow-[0_8px_30px_rgb(0,90,140,0.06)] hover:bg-white/80">
         <RegisterSiteManager />
       </div>
       
