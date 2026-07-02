@@ -131,5 +131,18 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
     // Fetch the UUID (sensor_id) using the ESP32 string (device_label)
     @Query(value = "SELECT id FROM sensor_registry WHERE sensor_id = :deviceLabel", nativeQuery = true)
     Optional<String> findSensorIdByDeviceLabel(@Param("deviceLabel") String deviceLabel);
+
+    // ==========================================
+    // FIND NEAREST SITE BY COORDINATES
+    // ==========================================
+    @Query(value = "SELECT site_id FROM sensor_registry " +
+            "ORDER BY (" +
+            "  6371 * acos(" +
+            "    cos(radians(:targetLat)) * cos(radians(latitude)) * " +
+            "    cos(radians(longitude) - radians(:targetLon)) + " +
+            "    sin(radians(:targetLat)) * sin(radians(latitude))" +
+            "  )" +
+            ") ASC LIMIT 1", nativeQuery = true)
+    Integer findNearestSiteId(@Param("targetLat") double targetLat, @Param("targetLon") double targetLon);
 }
 
