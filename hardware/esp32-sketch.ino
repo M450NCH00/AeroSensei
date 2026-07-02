@@ -23,20 +23,28 @@
 #define WIFI_PASSWORD "123456789"
 #define WIFI_TIMEOUT_MS 10000 // 10 seconds
 
-// Spring Boot ingest endpoint. Path must be /api/sensors/ingest.
-// NOTE: backend's application.properties sets server.port=8081, while the
-// Python traffic simulator defaults to 8080 (likely a proxy/Docker mapping).
-// Set this to wherever the running backend is actually reachable.
-#define POST_ENDPOINT "http://192.168.88.6:8081/api/sensors/ingest"
+// InfluxDB v2 write API. The sensor writes readings directly to InfluxDB —
+// nothing else in the stack sits in the hot path. Set this to wherever the
+// running InfluxDB instance is actually reachable.
+#define INFLUX_URL "http://192.168.88.6:8086"
+#define INFLUX_ORG "my-org"
+#define INFLUX_BUCKET "sensors_data"
+#define INFLUX_TOKEN "my-super-secret-admin-token-12345"
+#define POST_ENDPOINT INFLUX_URL "/api/v2/write?org=" INFLUX_ORG "&bucket=" INFLUX_BUCKET "&precision=ns"
 
-// Must match an existing id in the sensor_registry table, otherwise the
-// backend cannot attribute the reading to a sensor/site.
-#define SENSOR_ID "test"
+// Must match this device's row in the sensor_registry table: SENSOR_UUID is
+// the registry's generated `id` column (not the human-readable sensor_id
+// label), and SITE_ID/SITE_NAME come from the company_sites row it belongs
+// to. Look these up once via the backend/pgAdmin after registering the
+// sensor and bake them into the firmware per physical device.
+#define SENSOR_UUID "00000000-0000-0000-0000-000000000000"
+#define SITE_ID "1"
+#define SITE_NAME "VPBank Tower Hanoi"
 
-// NTP for the ISO-8601 UTC timestamp the ingest endpoint expects
+// NTP so line-protocol points can carry a real nanosecond timestamp
 #define NTP_SERVER "pool.ntp.org"
 
-// How often to read the SPS30 and POST to the backend (matches the
+// How often to read the SPS30 and write to InfluxDB (matches the
 // Python traffic simulator's READING_INTERVAL of 15 seconds)
 #define POST_INTERVAL_MS 15000
 
@@ -160,18 +168,34 @@ bool connectWiFi()
     return true;
 }
 
-// Returns the current time as an ISO-8601 UTC string (e.g. 2026-06-24T12:34:56Z).
-// Returns "" if NTP has not synced yet.
-String getIsoTimestamp()
+// Returns the current UTC time in nanoseconds since epoch, the precision the
+// InfluxDB write API is called with (precision=ns). Returns 0 if NTP has not
+// synced yet, in which case InfluxDB will stamp the point with its own
+// receipt time instead.
+int64_t getUnixNanoTimestamp()
 {
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo))
+    time_t now;
+    if (!time(&now) || now < 1700000000) // sanity check: before NTP sync, time() returns ~0
     {
-        return String("");
+        return 0;
     }
-    char buf[25];
-    strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
-    return String(buf);
+    return (int64_t)now * 1000000000LL;
+}
+
+// Escapes spaces, commas, and equals signs for use in an InfluxDB line
+// protocol tag value (SITE_NAME may contain spaces, e.g. "VPBank Tower Hanoi").
+String escapeTagValue(const char *value)
+{
+    String out;
+    for (const char *c = value; *c; c++)
+    {
+        if (*c == ' ' || *c == ',' || *c == '=')
+        {
+            out += '\\';
+        }
+        out += *c;
+    }
+    return out;
 }
 
 void postReadings(float pm1p0, float pm2p5, float pm4p0, float pm10p0, float nc0p5)
@@ -184,20 +208,29 @@ void postReadings(float pm1p0, float pm2p5, float pm4p0, float pm10p0, float nc0
 
     HTTPClient http;
     http.begin(POST_ENDPOINT);
-    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Content-Type", "text/plain; charset=utf-8");
+    http.addHeader("Authorization", "Token " INFLUX_TOKEN);
 
-    // Matches the /api/sensors/ingest payload contract.
-    String payload = "{";
-    payload += "\"sensorId\":\"" + String(SENSOR_ID) + "\",";
-    payload += "\"pm1_0\":" + String(pm1p0, 2) + ",";
-    payload += "\"pm2_5\":" + String(pm2p5, 2) + ",";
-    payload += "\"pm4_0\":" + String(pm4p0, 2) + ",";
-    payload += "\"pm10\":" + String(pm10p0, 2) + ",";
-    payload += "\"nc0_5\":" + String(nc0p5, 2) + ",";
-    payload += "\"timestamp\":\"" + getIsoTimestamp() + "\"";
-    payload += "}";
+    // InfluxDB line protocol: measurement,tag=set field=set timestamp
+    String line = "air_quality,sensor_id=" + String(SENSOR_UUID) +
+                  ",site_id=" + String(SITE_ID) +
+                  ",site_name=" + escapeTagValue(SITE_NAME) +
+                  " pm1_0=" + String(pm1p0, 2) +
+                  ",pm2_5=" + String(pm2p5, 2) +
+                  ",pm4_0=" + String(pm4p0, 2) +
+                  ",pm10=" + String(pm10p0, 2) +
+                  ",nc0_5=" + String(nc0p5, 2);
 
-    int httpCode = http.POST(payload);
+    int64_t ts = getUnixNanoTimestamp();
+    if (ts > 0)
+    {
+        char tsBuf[24];
+        snprintf(tsBuf, sizeof(tsBuf), "%lld", (long long)ts);
+        line += " ";
+        line += tsBuf;
+    }
+
+    int httpCode = http.POST(line);
 
     if (httpCode > 0)
     {

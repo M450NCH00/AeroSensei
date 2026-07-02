@@ -4,8 +4,9 @@ import os
 import sys
 import logging
 import psycopg2
-import requests
 from datetime import datetime, timezone
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.write_api import SYNCHRONOUS
 
 # --- LOGGING CONFIGURATION FOR DOCKER ---
 logging.basicConfig(
@@ -17,19 +18,25 @@ logging.basicConfig(
 logger = logging.getLogger("TrafficSimulator")
 
 # --- CONFIGURATION ---
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8081/api/sensors/ingest")
+INFLUX_URL = os.getenv("INFLUX_URL", "http://localhost:8086")
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "my-super-secret-admin-token-12345")
+INFLUX_ORG = os.getenv("INFLUX_ORG", "my-org")
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "sensors_data")
 
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = os.getenv("PG_PORT", "5432")
-PG_DB = os.getenv("PG_DB", "aerosensei_db")
-PG_USER = os.getenv("PG_USER", "postgres")
-PG_PASS = os.getenv("PG_PASS", "postgres")
+PG_DB = os.getenv("PG_DB", "postgresdb")
+PG_USER = os.getenv("PG_USER", "admin")
+PG_PASS = os.getenv("PG_PASS", "ChangeThisPassword123!")
 
 READING_INTERVAL = 15
 
 logger.info("Starting API Traffic Simulator...")
 
 # --- 1. FETCH SENSORS & SITES FROM POSTGRESQL ---
+# Each sensor carries its registry UUID (the InfluxDB sensor_id tag), plus its
+# site's id/name so the InfluxDB alert task can group readings by site without
+# needing to join back out to Postgres.
 sensors = []
 while True:
     try:
@@ -43,10 +50,18 @@ while True:
         )
         cur = conn.cursor()
 
-        cur.execute("SELECT sensor_id, site_id FROM sensor_registry LIMIT 9;")
+        cur.execute(
+            "SELECT sr.id, sr.site_id, cs.site_name "
+            "FROM sensor_registry sr "
+            "JOIN company_sites cs ON sr.site_id = cs.id "
+            "LIMIT 9;"
+        )
         rows = cur.fetchall()
 
-        sensors = [{"sensor_id": str(row[0]), "site_id": row[1]} for row in rows]
+        sensors = [
+            {"sensor_uuid": str(row[0]), "site_id": row[1], "site_name": row[2]}
+            for row in rows
+        ]
 
         cur.close()
         conn.close()
@@ -62,22 +77,39 @@ while True:
         logger.error(f"Waiting for PostgreSQL to start... Error: {e}")
         time.sleep(3)
 
-# --- 2. SELECT THE CRITICAL SITE ---
+# --- 2. CONNECT TO INFLUXDB ---
+logger.info(f"Connecting to InfluxDB at {INFLUX_URL}...")
+client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
+
+while True:
+    try:
+        if client.ping():
+            logger.info("InfluxDB is awake and ready!")
+            break
+    except Exception:
+        logger.info("Waiting for InfluxDB...")
+        time.sleep(2)
+
+write_api = client.write_api(write_options=SYNCHRONOUS)
+
+# --- 3. SELECT THE CRITICAL SITE ---
 critical_site_id = sensors[0]["site_id"]
 logger.warning(f"TARGET LOCKED: Site ID {critical_site_id} will consistently simulate PM2.5 > 55 & PM10 > 120!")
-logger.info(f"Sending data to {BACKEND_API_URL} every {READING_INTERVAL} seconds...")
+logger.info(f"Writing directly to InfluxDB bucket '{INFLUX_BUCKET}' every {READING_INTERVAL} seconds...")
 
-# --- 3. CONTINUOUS DATA GENERATION ---
+# --- 4. CONTINUOUS DATA GENERATION ---
 while True:
-    utc_now = datetime.now(timezone.utc).isoformat()
+    utc_now = datetime.now(timezone.utc)
+    points = []
 
     for sensor in sensors:
-        sensor_id = sensor["sensor_id"]
+        sensor_uuid = sensor["sensor_uuid"]
         site_id = sensor["site_id"]
+        site_name = sensor["site_name"]
 
         # --- DATA GENERATION LOGIC ---
         if site_id == critical_site_id:
-            # ALERT SITE: Force both PM2.5 and PM10 to exceed your new thresholds
+            # ALERT SITE: Force both PM2.5 and PM10 to exceed the alert thresholds
             pm25 = round(random.uniform(60, 80), 2)   # Threshold is 55.0
             pm10 = round(random.uniform(125, 150), 2) # Threshold is 120.0
 
@@ -93,27 +125,29 @@ while True:
             pm10 = round(pm4 + random.uniform(0, 8), 2)
             nc05 = round(random.uniform(200, 1000), 2)
 
-        payload = {
-            "sensorId": sensor_id,
-            "pm1_0": pm1,
-            "pm2_5": pm25,
-            "pm4_0": pm4,
-            "pm10": pm10,
-            "nc0_5": nc05,
-            "timestamp": utc_now
-        }
+        point = (
+            Point("air_quality")
+            .tag("sensor_id", sensor_uuid)
+            .tag("site_id", str(site_id))
+            .tag("site_name", site_name)
+            .field("pm1_0", pm1)
+            .field("pm2_5", pm25)
+            .field("pm4_0", pm4)
+            .field("pm10", pm10)
+            .field("nc0_5", nc05)
+            .time(utc_now, WritePrecision.NS)
+        )
+        points.append(point)
 
-        try:
-            response = requests.post(BACKEND_API_URL, json=payload, timeout=5)
+        if site_id == critical_site_id:
+            logger.warning(f"[CRITICAL] PM2.5: {pm25} | PM10: {pm10} for Sensor {sensor_uuid} (Site {site_id})")
+        else:
+            logger.info(f"[NORMAL]   PM2.5: {pm25} | PM10: {pm10} for Sensor {sensor_uuid} (Site {site_id})")
 
-            # Updated logs to show both values clearly
-            if site_id == critical_site_id:
-                logger.warning(f"[CRITICAL] Sent PM2.5: {pm25} | PM10: {pm10} for Sensor {sensor_id} (Site {site_id})")
-            else:
-                logger.info(f"[NORMAL]   Sent PM2.5: {pm25} | PM10: {pm10} for Sensor {sensor_id} (Site {site_id})")
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to reach Spring Boot Backend: {e}")
+    try:
+        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=points)
+    except Exception as e:
+        logger.error(f"Failed to write points to InfluxDB: {e}")
 
     logger.info("-" * 60)
     time.sleep(READING_INTERVAL)
