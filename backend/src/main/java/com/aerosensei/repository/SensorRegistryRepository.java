@@ -125,11 +125,5 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             "WHERE sr.sensor_id = :sensorId AND u.email = :email)", nativeQuery = true)
     boolean existsBySensorIdAndUserEmail(@Param("sensorId") String sensorId, @Param("email") String email);
 
-    @Query(value = "SELECT site_id FROM sensor_registry WHERE sensor_id = :sensor_id", nativeQuery = true)
-    int findSiteIdBySensorId(@Param("sensor_id") String sensor_id);
-
-    // Fetch the UUID (sensor_id) using the ESP32 string (device_label)
-    @Query(value = "SELECT id FROM sensor_registry WHERE sensor_id = :deviceLabel", nativeQuery = true)
-    Optional<String> findSensorIdByDeviceLabel(@Param("deviceLabel") String deviceLabel);
 }
 

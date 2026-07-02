@@ -91,6 +91,26 @@ services:
       retries: 5
       start_period: 30s
 
+  # Provisions the InfluxDB Task that watches air_quality readings and calls the
+  # ai-agent's /alert endpoint directly when a site breaches PM thresholds —
+  # InfluxDB triggers the alert, no backend involved. Re-run safe (idempotent).
+  influx-task-setup:
+    image: influxdb:2.7
+    container_name: influx-task-setup
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: on-failure
+    volumes:
+      - ./influxdb/tasks:/tasks:ro
+      - ./influxdb/setup-tasks.sh:/setup-tasks.sh:ro
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+    entrypoint: ["/bin/sh", "/setup-tasks.sh"]
+
   # --- RELATIONAL DATABASE (Sensor Metadata & Coordinates) ---
   postgres:
     image: postgres:16
@@ -371,7 +391,7 @@ services:
     build: ./seeder
     container_name: aerosensei-seeder
     environment:
-      # InfluxDB Variables
+      # InfluxDB Variables — sensor.py writes readings directly to InfluxDB
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=my-super-secret-admin-token-12345
       - INFLUX_ORG=my-org
@@ -381,7 +401,6 @@ services:
       - PG_DB=postgresdb
       - PG_USER=admin
       - PG_PASS=ChangeThisPassword123!
-      - BACKEND_API_URL=http://backend:8081/api/sensors/ingest
     depends_on:
       - influxdb
       - postgres
