@@ -297,6 +297,90 @@ public class SensorService {
         return responseList;
     }
 
+    // =====================================================
+    // GET 15-MINUTE READINGS AGGREGATED BY SITE FOR PUBLIC
+    // =====================================================
+    public List<SiteSensor15MinDTO> getSiteSensors15MinReadingsForPublic() {
+        List<Object[]> results;
+
+        logs.info("Fetching 15m readings for Site: All for General Public");
+        results = registryRepository.findAllSensorsDetails();
+
+        // Group the sensors by Site ID (row[1])
+        Map<Integer, List<Object[]>> groupedBySite = results.stream()
+                .collect(Collectors.groupingBy(row -> (Integer) row[1]));
+
+        List<SiteSensor15MinDTO> responseList = new ArrayList<>();
+
+        // Iterate through each Site and calculate aggregated values
+        for (Map.Entry<Integer, List<Object[]>> entry : groupedBySite.entrySet()) {
+            List<Object[]> siteSensors = entry.getValue();
+
+            Object[] firstRow = siteSensors.get(0);
+
+            SiteSensor15MinDTO siteDto = new SiteSensor15MinDTO();
+            siteDto.setCompanyName((String) firstRow[0]);
+            siteDto.setSiteId((Integer) firstRow[1]);
+            siteDto.setSiteName((String) firstRow[2]);
+            siteDto.setLatitude((BigDecimal) firstRow[4]);
+            siteDto.setLongitude((BigDecimal) firstRow[5]);
+
+            double totalAvgPm25 = 0.0, totalAvgPm10 = 0.0;
+            double absoluteMaxPm25 = -1.0, absoluteMaxPm10 = -1.0;
+            int validPm25Count = 0, validPm10Count = 0;
+            Instant latestCalculation = Instant.MIN;
+
+            // Fetch readings for every sensor at this site
+            for (Object[] row : siteSensors) {
+                String sensorId = (String) row[3];
+                SensorReadingsDTO sensorReadings = getRealTimeReadings(sensorId);
+
+                // Accumulate PM 2.5
+                if (sensorReadings.getAvgPm25() != null) {
+                    totalAvgPm25 += sensorReadings.getAvgPm25();
+                    validPm25Count++;
+                    if (sensorReadings.getMaxPm25() != null && sensorReadings.getMaxPm25() > absoluteMaxPm25) {
+                        absoluteMaxPm25 = sensorReadings.getMaxPm25();
+                    }
+                }
+
+                // Accumulate PM 10
+                if (sensorReadings.getAvgPm10() != null) {
+                    totalAvgPm10 += sensorReadings.getAvgPm10();
+                    validPm10Count++;
+                    if (sensorReadings.getMaxPm10() != null && sensorReadings.getMaxPm10() > absoluteMaxPm10) {
+                        absoluteMaxPm10 = sensorReadings.getMaxPm10();
+                    }
+                }
+
+                if (sensorReadings.getLastCalculated() != null && sensorReadings.getLastCalculated().isAfter(latestCalculation)) {
+                    latestCalculation = sensorReadings.getLastCalculated();
+                }
+            }
+
+            // Calculate Final Site Numbers
+            Double finalAvgPm25 = validPm25Count > 0 ? (totalAvgPm25 / validPm25Count) : null;
+            Double finalMaxPm25 = validPm25Count > 0 ? absoluteMaxPm25 : null;
+
+            Double finalAvgPm10 = validPm10Count > 0 ? (totalAvgPm10 / validPm10Count) : null;
+            Double finalMaxPm10 = validPm10Count > 0 ? absoluteMaxPm10 : null;
+
+            if (finalAvgPm25 != null) siteDto.setAvgPm25(Math.round(finalAvgPm25 * 100.0) / 100.0);
+            if (finalMaxPm25 != null) siteDto.setMaxPm25(Math.round(finalMaxPm25 * 100.0) / 100.0);
+            if (finalAvgPm10 != null) siteDto.setAvgPm10(Math.round(finalAvgPm10 * 100.0) / 100.0);
+            if (finalMaxPm10 != null) siteDto.setMaxPm10(Math.round(finalMaxPm10 * 100.0) / 100.0);
+
+            siteDto.setLastCalculated(latestCalculation == Instant.MIN ? null : latestCalculation);
+
+            // Delegate to the new helper method (only passing averages!)
+            determineStateAndBreach(siteDto, finalAvgPm25, finalAvgPm10);
+
+            responseList.add(siteDto);
+        }
+
+        return responseList;
+    }
+
     // clustering area sensor function
     public List<ClusterMaxDTO> getClusteredMaxInArea(
             BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon, int zoom, Authentication authentication) {
