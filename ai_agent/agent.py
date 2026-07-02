@@ -31,6 +31,14 @@ def _build_messages(question: str, history: list[dict]) -> list[dict]:
     return messages
 
 
+def _fmt2(value):
+    """Round a numeric PM reading to 2 decimals for display, trimming float noise
+    (e.g. 72.34000000000001 -> "72.34"). Non-numeric/None values pass through."""
+    if isinstance(value, (int, float)):
+        return f"{value:.2f}"
+    return value
+
+
 def _fallback_alert(alert: dict) -> str:
     """Deterministic advisory used when the LLM is unavailable or errors out.
 
@@ -44,8 +52,8 @@ def _fallback_alert(alert: dict) -> str:
         or "an unknown site"
     )
     pm_type = (alert.get("pm_type") or "PM").upper()
-    measured = alert.get("measured_value")
-    threshold = alert.get("threshold_value")
+    measured = _fmt2(alert.get("measured_value"))
+    threshold = _fmt2(alert.get("threshold_value"))
     level = (alert.get("alert_level") or "WARNING").upper()
     measured_str = f"{measured} µg/m³" if measured is not None else "above the limit"
     threshold_str = f" (threshold {threshold} µg/m³)" if threshold is not None else ""

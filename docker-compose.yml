@@ -405,6 +405,35 @@ services:
       - influxdb
       - postgres
 
+  # --- FORECAST MODEL API (PM2.5/PM10 short-horizon prediction) ---
+  forecast-model:
+    build: ./forecast_model
+    container_name: aerosensei-forecast-model
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INFLUX_BUCKET=sensors_data
+      - PG_HOST=postgresdb
+      - PG_PORT=5432
+      - PG_DB=postgresdb
+      - PG_USER=admin
+      - PG_PASS=ChangeThisPassword123!
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
 volumes:
   influxdb-data:
   influxdb-config:
