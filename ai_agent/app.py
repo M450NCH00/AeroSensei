@@ -314,6 +314,75 @@ def ministry_alerts_list():
     return jsonify({"broadcasts": ministry.get_recent_broadcasts()}), 200
 
 
+@app.route("/site-alert", methods=["POST"])
+def site_alert():
+    """Internal: per-site company alert.
+
+    The backend posts a site's current WARNING/BREACHED state (or SAFE to clear
+    on recovery). The agent stores it with templated MOH advice for the owning
+    company, surfaced on the Alerts page.
+
+    Auth: X-Internal-Secret must equal INTERNAL_API_SECRET (fail closed).
+
+    Body (JSON):
+      site_id       (required)
+      site_name     (optional, string)
+      company_name  (optional, string)
+      level         (required)  'WARNING' | 'BREACHED' | 'SAFE'
+      pm2_5, pm10   (optional, number)
+    """
+    if not config.INTERNAL_API_SECRET:
+        return jsonify({"error": "Site-alert endpoint is disabled (INTERNAL_API_SECRET not set)."}), 503
+    if request.headers.get("X-Internal-Secret") != config.INTERNAL_API_SECRET:
+        return jsonify({"error": "forbidden"}), 403
+
+    data = request.get_json(silent=True) or {}
+    site_id = data.get("site_id")
+    if site_id is None:
+        return jsonify({"error": "Field 'site_id' is required"}), 400
+    level = str(data.get("level") or "").strip().upper()
+    if level not in ("WARNING", "BREACHED", "SAFE"):
+        return jsonify({"error": "Field 'level' must be 'WARNING', 'BREACHED', or 'SAFE'"}), 400
+
+    import ministry
+    if level == "SAFE":
+        ministry.clear_site_alert(site_id)
+        return jsonify({"status": "cleared", "site_id": site_id}), 200
+
+    alert = ministry.upsert_site_alert(
+        site_id,
+        data.get("site_name") or f"Site {site_id}",
+        data.get("company_name") or "",
+        level,
+        data.get("pm2_5"),
+        data.get("pm10"),
+    )
+    return jsonify({"status": "ok", "alert": alert}), 200
+
+
+@app.route("/site-alerts/clear", methods=["POST"])
+def site_alerts_clear():
+    """Internal: drop all per-site alerts (used when the demo resets to normal)."""
+    if not config.INTERNAL_API_SECRET:
+        return jsonify({"error": "disabled (INTERNAL_API_SECRET not set)."}), 503
+    if request.headers.get("X-Internal-Secret") != config.INTERNAL_API_SECRET:
+        return jsonify({"error": "forbidden"}), 403
+    import ministry
+    ministry.clear_all_site_alerts()
+    return jsonify({"status": "cleared"}), 200
+
+
+@app.route("/alerts", methods=["GET"])
+def alerts_feed():
+    """Unified read-only feed for the Alerts page: per-site company alerts and
+    city-wide department escalations."""
+    import ministry
+    return jsonify({
+        "site_alerts": ministry.get_site_alerts(),
+        "city_alerts": ministry.get_recent_broadcasts(),
+    }), 200
+
+
 def _match_sector(summary: dict, sectors: list) -> tuple:
     """Best-effort map of the researcher's free-text suggestion to a real sector id.
 

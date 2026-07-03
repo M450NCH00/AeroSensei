@@ -300,5 +300,7 @@ VALUES
     ('hn_0278', (SELECT id FROM company_sites WHERE site_name = 'Hanoi Ambient Station - Long Bien 8'), 21.33639510, 105.99627185, 'w7g3kh0js', 'active', '2026-05-27'),
     ('hn_0279', (SELECT id FROM company_sites WHERE site_name = 'Hanoi Ambient Station - Long Bien 8'), 21.33902892, 105.99583575, 'w7g37uxuc', 'active', '2026-05-09'),
     -- Single Ho Chi Minh City sensor, backed by nearest OpenAQ PM2.5/PM10 data.
-    ('hcm_0001', (SELECT id FROM company_sites WHERE site_name = 'Ho Chi Minh OpenAQ Station - District 1'), 10.77722000, 106.70111000, 'w3gvk1cmu', 'active', '2026-01-15')
+    ('hcm_0001', (SELECT id FROM company_sites WHERE site_name = 'Ho Chi Minh OpenAQ Station - District 1'), 10.77722000, 106.70111000, 'w3gvk1cmu', 'active', '2026-01-15'),
+    -- Physical ESP32 sensor at the VinUniversity campus site.
+    ('vinuni_0001', (SELECT id FROM company_sites WHERE site_name = 'VinUniversity - Gia Lam'), 20.97650000, 105.99080000, 'w7er7fshu', 'active', '2026-07-03')
 ON CONFLICT (sensor_id) DO NOTHING;

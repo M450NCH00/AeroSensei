@@ -7,7 +7,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Bot, Map, Leaf, TrendingUp, Settings,
-  LogOut, Building, Cpu, Gavel, Mail, Database, ChevronLeft, ChevronRight
+  LogOut, Building, Cpu, Gavel, Bell, Database, ChevronLeft, ChevronRight
 } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
 import { useAuth } from "@/app/context/AuthContext";
@@ -29,9 +29,9 @@ export default function Sidebar() {
     ...(isGov || isCompany
       ? [{ name: isGov ? "Fines" : "My Fines", href: "/dashboard/fines", icon: Gavel, hoverAnim: "group-hover:-rotate-12 group-hover:-translate-y-0.5" }]
       : []),
+    { name: "Alerts", href: "/dashboard/alerts", icon: Bell, hoverAnim: "group-hover:-translate-y-0.5" },
     ...(isGov
-      ? [{ name: "Ministry Alerts", href: "/dashboard/ministry-alerts", icon: Mail, hoverAnim: "group-hover:-translate-y-0.5" },
-         { name: "Historical Data", href: "/dashboard/historical-data", icon: Database, hoverAnim: "group-hover:-translate-y-0.5" }]
+      ? [{ name: "Historical Data", href: "/dashboard/historical-data", icon: Database, hoverAnim: "group-hover:-translate-y-0.5" }]
       : []),
     { name: "Carbon Market", href: "/dashboard/carbon", icon: Leaf, hoverAnim: "group-hover:rotate-12 group-hover:text-emerald-500" },
     { name: "Carbon Credit", href: "/dashboard/carbon-credit", icon: TrendingUp, hoverAnim: "group-hover:-translate-y-1 group-hover:translate-x-1" },
