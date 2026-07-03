@@ -1,14 +1,15 @@
 package com.aerosensei.repository;
 
-import com.aerosensei.entity.SensorRegistry;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import com.aerosensei.entity.SensorRegistry;
 
 @Repository
 public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, Long> {
@@ -125,5 +126,24 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistry, 
             "WHERE sr.sensor_id = :sensorId AND u.email = :email)", nativeQuery = true)
     boolean existsBySensorIdAndUserEmail(@Param("sensorId") String sensorId, @Param("email") String email);
 
+    @Query(value = "SELECT site_id FROM sensor_registry WHERE sensor_id = :sensor_id", nativeQuery = true)
+    int findSiteIdBySensorId(@Param("sensor_id") String sensor_id);
+
+    // Fetch the UUID (sensor_id) using the ESP32 string (device_label)
+    @Query(value = "SELECT id FROM sensor_registry WHERE sensor_id = :deviceLabel", nativeQuery = true)
+    Optional<String> findSensorIdByDeviceLabel(@Param("deviceLabel") String deviceLabel);
+
+    // ==========================================
+    // FIND NEAREST SITE BY COORDINATES
+    // ==========================================
+    @Query(value = "SELECT site_id FROM sensor_registry " +
+            "ORDER BY (" +
+            "  6371 * acos(" +
+            "    cos(radians(:targetLat)) * cos(radians(latitude)) * " +
+            "    cos(radians(longitude) - radians(:targetLon)) + " +
+            "    sin(radians(:targetLat)) * sin(radians(latitude))" +
+            "  )" +
+            ") ASC LIMIT 1", nativeQuery = true)
+    Integer findNearestSiteId(@Param("targetLat") double targetLat, @Param("targetLon") double targetLon);
 }
 

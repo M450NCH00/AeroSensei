@@ -54,6 +54,11 @@ public class SensorService {
     @Value("${influxdb.bucket}")
     private String bucket;
 
+    @Value("${ml.api.url:http://localhost:8000}")
+    private String mlApiUrl;
+
+    private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+
 //    // ==========================================
 //    // GET COMPANY DASHBOARD (DOUBLE CACHE)
 //    // ==========================================
@@ -917,5 +922,105 @@ public class SensorService {
         }
 
         return new Object[]{finalState, breachType};
+    }
+
+    // ===========================================================
+    // GET 12-HOUR HISTORICAL AVERAGE FOR NEAREST SITE FOR PUBLIC
+    // ===========================================================
+    public List<SiteHistoricalDataDTO> getSiteHistoricalAverageForPublic(BigDecimal lat, BigDecimal lon) {
+        logs.info("Searching for nearest sensor site to Lat: {}, Lon: {}", lat, lon);
+
+        // 1. Ask PostgreSQL for the absolute closest site ID
+        Integer nearestSiteId = registryRepository.findNearestSiteId(lat.doubleValue(), lon.doubleValue());
+
+        if (nearestSiteId == null) {
+            throw new RuntimeException("No active sensor sites found to generate a forecast.");
+        }
+
+        // Fetch allowed UUIDs from PostgreSQL based on role
+        List<String> sensorUuids;
+        sensorUuids = registryRepository.findSensorUuidsBySiteId(nearestSiteId);
+
+        // If the site doesn't exist, doesn't belong to the company, or has no sensors -> return empty
+        if (sensorUuids == null || sensorUuids.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // Build the dynamic Flux filter string for the UUIDs
+        // Result looks like: r.sensor_id == "uuid1" or r.sensor_id == "uuid2"
+        String uuidFilter = sensorUuids.stream()
+                .map(uuid -> "r.sensor_id == \"" + uuid + "\"")
+                .collect(Collectors.joining(" or "));
+
+        // The 12-Hour InfluxDB Query
+        // group(columns: ["_field"]) pools all sensors at the site together before averaging
+        String fluxQuery = String.format(
+                "from(bucket:\"%s\") " +
+                        "|> range(start: -12h) " +
+                        "|> filter(fn: (r) => r._measurement == \"air_quality\") " +
+                        "|> filter(fn: (r) => %s) " +
+                        "|> group(columns: [\"_field\"]) " +
+                        "|> aggregateWindow(every: 1h, fn: mean, createEmpty: false)",
+                bucket, uuidFilter
+        );
+
+        logs.info("Executing 12-hour historical query for site {}. Sensors involved: {}", nearestSiteId, sensorUuids.size());
+        List<FluxTable> tables = influxDBClient.getQueryApi().query(fluxQuery, org);
+
+        // 4. Map the results by Timestamp so PM2.5 and PM10 merge into the same DTO
+        Map<Instant, SiteHistoricalDataDTO> timeSeriesMap = new HashMap<>();
+
+        for (FluxTable table : tables) {
+            for (FluxRecord record : table.getRecords()) {
+                Instant time = record.getTime();
+                String field = record.getField();
+                Double value = (Double) record.getValue();
+
+                if (value == null) continue;
+
+                // Create or fetch the DTO for this specific hour
+                SiteHistoricalDataDTO dto = timeSeriesMap.computeIfAbsent(time, SiteHistoricalDataDTO::new);
+
+                if ("pm2_5".equals(field)) {
+                    dto.setPm25(Math.round(value * 100.0) / 100.0);
+                } else if ("pm10".equals(field)) {
+                    dto.setPm10(Math.round(value * 100.0) / 100.0);
+                }
+            }
+        }
+
+        // 5. Convert map to a sorted list (oldest to newest) for graphing
+        List<SiteHistoricalDataDTO> sortedData = new ArrayList<>(timeSeriesMap.values());
+        sortedData.sort(Comparator.comparing(SiteHistoricalDataDTO::getTimestamp));
+
+        return sortedData;
+    }
+
+
+    // ==========================================
+    // GET FORECAST BY USER COORDINATES
+    // ==========================================
+    public ForecastResponseDTO getForecastByCoordinates(BigDecimal lat, BigDecimal lon) {
+        logs.info("Searching for nearest sensor site to Lat: {}, Lon: {}", lat, lon);
+
+        // 1. Ask PostgreSQL for the absolute closest site ID
+        Integer nearestSiteId = registryRepository.findNearestSiteId(lat.doubleValue(), lon.doubleValue());
+
+        if (nearestSiteId == null) {
+            throw new RuntimeException("No active sensor sites found to generate a forecast.");
+        }
+
+        logs.info("Nearest site found is Site ID {}. Requesting forecast from ML Engine...", nearestSiteId);
+
+        // 2. Build the URL and fire the request to your Python FastAPI
+        String url = mlApiUrl + "/predict/" + nearestSiteId;
+        
+        try {
+            // This cleanly maps your Python JSON directly into your Java DTO
+            return restTemplate.getForObject(url, ForecastResponseDTO.class);
+        } catch (Exception e) {
+            logs.error("Failed to fetch forecast from ML Engine: {}", e.getMessage());
+            throw new RuntimeException("Forecast engine is currently unavailable.");
+        }
     }
 }

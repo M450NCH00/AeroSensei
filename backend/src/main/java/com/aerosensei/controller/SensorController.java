@@ -70,7 +70,7 @@ public class SensorController {
         return ResponseEntity.ok(historyData);
     }
 
-    // URL: GET http://localhost:8081/api/sensors/site/1/readings-15m
+    // URL: GET http://localhost:8081/api/sensors/site/all-readings-15m
     @GetMapping("/site/all-readings-15m")
     public ResponseEntity<List<SiteSensor15MinDTO>> getSiteSensors15MinAverage(
             Authentication authentication) {
@@ -117,6 +117,29 @@ public class SensorController {
             return ResponseEntity.ok().body(Map.of("message", "Sensor deleted successfully!", "sensorId", sensorId));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // URL: GET http://localhost:8081/api/sensors/public/all-readings-15m
+    @GetMapping("/public/site/history")
+    public ResponseEntity<List<SiteHistoricalDataDTO>> getSiteSensors15MinAverageForPublic(
+            @RequestParam BigDecimal lat,
+            @RequestParam BigDecimal lon) {
+
+        List<SiteHistoricalDataDTO> historyData = sensorService.getSiteHistoricalAverageForPublic(lat, lon);
+        return ResponseEntity.ok(historyData);
+    }
+
+    // URL: GET http://localhost:8081/api/sensors/public/forecast?lat=1.4500&lon=103.7500
+    @GetMapping("/public/forecast")
+    public ResponseEntity<?> getForecast(
+            @RequestParam BigDecimal lat,
+            @RequestParam BigDecimal lon) {
+        try {
+            ForecastResponseDTO forecast = sensorService.getForecastByCoordinates(lat, lon);
+            return ResponseEntity.ok(forecast);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", e.getMessage()));
         }
     }
 }
