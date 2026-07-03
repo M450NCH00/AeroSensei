@@ -65,3 +65,40 @@ def get_report(filename: str) -> bytes | None:
         return obj["Body"].read()
     except ClientError:
         return None
+
+
+def list_backups() -> list[dict]:
+    """List the historical-data backup objects, newest first.
+
+    Returns [{key, name, size, last_modified}] for every object in the backups
+    bucket. An empty list if the bucket is missing/empty.
+    """
+    s3 = _s3()
+    try:
+        paginator = s3.get_paginator("list_objects_v2")
+        items: list[dict] = []
+        for page in paginator.paginate(Bucket=config.MINIO_BACKUPS_BUCKET):
+            for obj in page.get("Contents", []):
+                items.append(
+                    {
+                        "key": obj["Key"],
+                        "name": obj["Key"].rsplit("/", 1)[-1],
+                        "size": obj["Size"],
+                        "last_modified": obj["LastModified"].isoformat(),
+                    }
+                )
+        items.sort(key=lambda o: o["last_modified"], reverse=True)
+        return items
+    except ClientError as e:
+        log.warning("could not list backups bucket %s: %s", config.MINIO_BACKUPS_BUCKET, e)
+        return []
+
+
+def get_backup(key: str) -> bytes | None:
+    """Fetch a backup object's bytes by key, or None if it doesn't exist."""
+    s3 = _s3()
+    try:
+        obj = s3.get_object(Bucket=config.MINIO_BACKUPS_BUCKET, Key=key)
+        return obj["Body"].read()
+    except ClientError:
+        return None

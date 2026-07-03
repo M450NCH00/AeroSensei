@@ -3,7 +3,7 @@
 
 // 1. Added useRef to our imports
 import { useState, useEffect, useRef } from "react";
-import { Bell, Download, ShieldAlert, X, CheckCircle2 } from "lucide-react";
+import { Bell, ShieldAlert, X, CheckCircle2 } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
 import { useAuth } from "@/app/context/AuthContext";
 
@@ -23,12 +23,7 @@ export interface PmAlertResponse {
   fined: boolean;
 }
 
-interface DashboardHeaderProps {
-  onDownload: () => void;
-  isDownloading: boolean;
-}
-
-export default function DashboardHeader({ onDownload, isDownloading }: DashboardHeaderProps) {
+export default function DashboardHeader() {
   const [showAlerts, setShowAlerts] = useState(false);
   const { hasRole } = useAuth();
   
@@ -199,15 +194,6 @@ export default function DashboardHeader({ onDownload, isDownloading }: Dashboard
           )}
         </div>
 
-        <button 
-          type="button"
-          onClick={onDownload}
-          disabled={isDownloading}
-          className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-[#005A8C] to-[#0070ab] text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all duration-300 shadow-md shadow-[#005A8C]/10 hover:shadow-xl hover:shadow-[#005A8C]/20 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 cursor-pointer disabled:opacity-50 disabled:translate-y-0 disabled:shadow-none"
-        >
-          <Download size={14} className={isDownloading ? "animate-bounce" : ""} />
-          {isDownloading ? "Compiling..." : "Download Report"}
-        </button>
       </div>
     </header>
   );

@@ -10,6 +10,7 @@ backend on every tool call.
 """
 import logging
 import os
+import time
 
 import requests
 from flask import Flask, Response, jsonify, request
@@ -21,6 +22,12 @@ from auth import AuthError, authenticate
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
+
+# When a CITY-WIDE escalation fires, individual per-site Telegram alerts become
+# redundant noise and (with every site breached) flood Telegram into 429 rate
+# limits. While this window is active, /alert skips the per-site Telegram push;
+# the single city-wide summary covers it. Refreshed on each /ministry-alert.
+_city_wide_suppress_until = 0.0
 
 app = Flask(__name__)
 
@@ -79,6 +86,84 @@ def get_report(filename):
     )
 
 
+@app.route("/backups", methods=["GET"])
+def list_backups():
+    """List historical-data backup files (government/admin only).
+
+    Returns the objects in the MinIO backups bucket that the weekly cron writes,
+    for the frontend's Historical Data tab. Auth: same JWT + role gate as /ask.
+    """
+    try:
+        authenticate(request)
+    except AuthError as e:
+        return jsonify({"error": str(e)}), e.status
+    import storage
+    return jsonify({"backups": storage.list_backups()}), 200
+
+
+@app.route("/backups/download", methods=["GET"])
+def download_backup():
+    """Stream a single backup file for download (government/admin only).
+
+    Query param `key` is the object key from GET /backups. Auth: same as /ask.
+    """
+    try:
+        authenticate(request)
+    except AuthError as e:
+        return jsonify({"error": str(e)}), e.status
+
+    key = (request.args.get("key") or "").strip()
+    # Keys come from our own listing; reject anything trying to escape the bucket path.
+    if not key or key.startswith("/") or ".." in key:
+        return jsonify({"error": "invalid or missing 'key'"}), 400
+
+    import storage
+    data = storage.get_backup(key)
+    if data is None:
+        return jsonify({"error": "Backup not found."}), 404
+
+    filename = key.rsplit("/", 1)[-1]
+    return Response(
+        data,
+        mimetype="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/backups/run", methods=["POST"])
+def run_backup():
+    """Trigger an on-demand backup of the current window (up to now).
+
+    Authorized either by a government/admin JWT (the 'Backup now' button) or by
+    the internal secret (so a scheduler could call it too). Returns the created
+    archive's metadata, or a 'no data' message when the window is empty.
+    """
+    authorized = False
+    if config.INTERNAL_API_SECRET and request.headers.get("X-Internal-Secret") == config.INTERNAL_API_SECRET:
+        authorized = True
+    else:
+        try:
+            authenticate(request)
+            authorized = True
+        except AuthError as e:
+            return jsonify({"error": str(e)}), e.status
+    if not authorized:
+        return jsonify({"error": "forbidden"}), 403
+
+    data = request.get_json(silent=True) or {}
+    lookback = data.get("lookback_days")
+    try:
+        import backup
+        result = backup.run_backup(lookback_days=int(lookback) if lookback is not None else None)
+    except Exception:
+        log.exception("On-demand backup failed")
+        return jsonify({"error": "Backup failed."}), 500
+
+    if result.get("status") == "empty":
+        return jsonify({"status": "empty", "message": "No data in the selected window."}), 200
+    return jsonify(result), 201
+
+
 @app.route("/alert", methods=["POST"])
 def alert():
     """Internal: backend triggers a Telegram air-quality alert.
@@ -115,6 +200,11 @@ def alert():
     if not isinstance(data.get("measured_value"), (int, float)):
         return jsonify({"error": "Field 'measured_value' (number) is required"}), 400
 
+    # 2b. If a city-wide escalation is active, skip the per-site Telegram push to
+    # avoid flooding Telegram (429). The city-wide summary already went out.
+    if time.time() < _city_wide_suppress_until:
+        return jsonify({"status": "suppressed", "reason": "city-wide escalation active"}), 200
+
     # 3. Compose the advisory message.
     try:
         message = agent.compose_alert(data)
@@ -148,6 +238,81 @@ def alert():
 
     sent = (resp.json() or {}).get("sent")
     return jsonify({"status": "sent", "recipients": sent, "message": message}), 200
+
+
+@app.route("/ministry-alert", methods=["POST"])
+def ministry_alert():
+    """Internal: city-wide escalation — email tailored directives to ministries.
+
+    Called server-to-server by the backend when a large share of Hanoi's live
+    sensors are unhealthy. The backend has already decided the level; this
+    endpoint composes a per-ministry directive and emails it (or logs it when
+    SMTP is unconfigured).
+
+    Auth: X-Internal-Secret must equal INTERNAL_API_SECRET (fail closed).
+
+    Body (JSON):
+      level            (required)  'WARNING' | 'BREACHED'
+      total_sensors    (optional, int)
+      warning_sensors  (optional, int)
+      breached_sensors (optional, int)
+      warning_pct      (optional, number)
+      breached_pct     (optional, number)
+    """
+    if not config.INTERNAL_API_SECRET:
+        return jsonify({"error": "Ministry-alert endpoint is disabled (INTERNAL_API_SECRET not set)."}), 503
+    if request.headers.get("X-Internal-Secret") != config.INTERNAL_API_SECRET:
+        return jsonify({"error": "forbidden"}), 403
+
+    data = request.get_json(silent=True) or {}
+    level = str(data.get("level") or "").strip().upper()
+    if level not in ("WARNING", "BREACHED"):
+        return jsonify({"error": "Field 'level' must be 'WARNING' or 'BREACHED'"}), 400
+
+    # A city-wide event is now in effect: suppress redundant per-site Telegram
+    # alerts for a window (refreshed on each escalation) so Telegram isn't flooded.
+    global _city_wide_suppress_until
+    _city_wide_suppress_until = time.time() + config.CITY_WIDE_SUPPRESS_MINUTES * 60
+
+    # On a BREACHED (city-wide) escalation, research likely reasons the whole city
+    # is polluted. Token-light + cached; never blocks the alert if it fails.
+    causes = None
+    if level == "BREACHED" and config.POLLUTION_RESEARCH_ENABLED:
+        try:
+            import pollution_research
+            causes = pollution_research.get_pollution_causes(data)
+        except Exception:
+            log.exception("Pollution cause research failed (continuing without it)")
+
+    try:
+        import ministry
+        result = ministry.send_ministry_alerts(level, data, causes=causes)
+    except Exception:
+        log.exception("Failed to send ministry alerts")
+        return jsonify({"error": "Failed to send ministry alerts."}), 500
+
+    # Also push a city-wide alert to Telegram (both WARNING and BREACHED), including
+    # the web-research causes when present. Non-fatal: never break the response.
+    try:
+        tg = ministry.push_city_telegram(level, data, causes)
+        if tg:
+            result["telegram"] = tg
+    except Exception:
+        log.exception("City-wide Telegram push failed (continuing)")
+
+    return jsonify(result), 200
+
+
+@app.route("/ministry-alerts", methods=["GET"])
+def ministry_alerts_list():
+    """Read-only feed of recent city-wide escalation broadcasts for the UI.
+
+    Each broadcast carries the level, timestamp, sensor stats, and the composed
+    per-ministry email drafts (receiver + subject + body). For the demo these
+    are displayed instead of being emailed.
+    """
+    import ministry
+    return jsonify({"broadcasts": ministry.get_recent_broadcasts()}), 200
 
 
 def _match_sector(summary: dict, sectors: list) -> tuple:

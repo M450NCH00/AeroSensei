@@ -1,7 +1,6 @@
 // src/app/dashboard/page.tsx
 "use client";
 
-import { useState } from "react";
 import dynamic from "next/dynamic";
 
 import DashboardHeader from "../components/DashboardHeader";
@@ -18,13 +17,6 @@ const DynamicMap = dynamic(() => import("../components/AeroMap"), {
 });
 
 export default function DashboardHome() {
-  const [isDownloading, setIsDownloading] = useState(false);
-
-  const triggerDownload = () => {
-    setIsDownloading(true);
-    setTimeout(() => setIsDownloading(false), 2000);
-  };
-
   return (
     <div className="p-8 min-h-screen bg-[#F1F5F9] flex flex-col gap-6 relative select-none overflow-hidden">
       
@@ -37,15 +29,12 @@ export default function DashboardHome() {
 
       <div className="relative z-10 flex flex-col gap-6 h-full">
         
-        <DashboardHeader 
-          onDownload={triggerDownload} 
-          isDownloading={isDownloading} 
-        />
+        <DashboardHeader />
 
         <div className="w-full flex flex-col xl:flex-row gap-6 h-[calc(100vh-4rem)] min-h-[600px]">
           
           {/* Map View Canvas Workspace */}
-          <div className="flex-1 relative rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 bg-white/70 backdrop-blur-2xl p-2 flex flex-col h-full overflow-hidden transition-all duration-500 hover:shadow-[0_8px_30px_rgb(0,90,140,0.08)] hover:bg-white/80">
+          <div className="flex-1 relative rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 bg-white/70 backdrop-blur-2xl flex flex-col h-full overflow-hidden transition-all duration-500 hover:shadow-[0_8px_30px_rgb(0,90,140,0.08)] hover:bg-white/80">
             
             <div className="absolute top-6 left-6 z-10 bg-white/80 backdrop-blur-md px-4 py-2 rounded-xl border border-white/50 text-xs font-bold text-[#005A8C] flex items-center gap-2 shadow-sm">
               <span className="w-2 h-2 rounded-full bg-[#009B9E] animate-ping" />
