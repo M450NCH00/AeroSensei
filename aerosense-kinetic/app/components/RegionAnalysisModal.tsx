@@ -190,6 +190,10 @@ export default function RegionAnalysisModal({ isOpen, onClose, regionName, baseS
                 )}
               </button>
               
+              <span className="text-[10px] font-bold tracking-widest uppercase text-gray-400">
+                Powered by Open-Meteo
+              </span>
+
               {forecastError && (
                 <span className="text-[10px] font-black tracking-widest uppercase text-red-500 flex items-center gap-1.5 bg-red-50/80 px-3 py-1.5 rounded-lg border border-red-100">
                   <AlertCircle size={14} /> {forecastError}
