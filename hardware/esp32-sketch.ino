@@ -3,6 +3,7 @@
 #include <SensirionUartSps30.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <time.h>
 
 // =====================================================
@@ -23,10 +24,12 @@
 #define WIFI_PASSWORD "123456789"
 #define WIFI_TIMEOUT_MS 10000 // 10 seconds
 
-// InfluxDB v2 write API. The sensor writes readings directly to InfluxDB —
-// nothing else in the stack sits in the hot path. Set this to wherever the
-// running InfluxDB instance is actually reachable.
-#define INFLUX_URL "http://192.168.88.6:8086"
+// InfluxDB v2 write API, exposed to the internet through the nginx reverse
+// proxy at /influx/ (HTTPS on the EC2 host). nginx strips the /influx prefix
+// and forwards to influxdb:8086 inside the compose network. The cert is
+// self-signed, so the device connects with setInsecure() (see postReadings).
+// For a purely local run, point this back at http://<lan-ip>:8086.
+#define INFLUX_URL "https://ec2-3-107-194-55.ap-southeast-2.compute.amazonaws.com/influx"
 #define INFLUX_ORG "my-org"
 #define INFLUX_BUCKET "sensors_data"
 #define INFLUX_TOKEN "my-super-secret-admin-token-12345"
@@ -146,8 +149,10 @@ bool connectWiFi()
     Serial.print("Target endpoint : ");
     Serial.println(POST_ENDPOINT);
 
+    WiFiClientSecure client;
+    client.setInsecure(); // accept the nginx endpoint's self-signed TLS cert
     HTTPClient http;
-    http.begin(POST_ENDPOINT);
+    http.begin(client, POST_ENDPOINT);
     http.setTimeout(5000);
     int httpCode = http.GET(); // GET on the ingest path will likely 405/404, that's fine — we just want TCP to succeed
 
@@ -206,8 +211,10 @@ void postReadings(float pm1p0, float pm2p5, float pm4p0, float pm10p0, float nc0
         return;
     }
 
+    WiFiClientSecure client;
+    client.setInsecure(); // accept the nginx endpoint's self-signed TLS cert
     HTTPClient http;
-    http.begin(POST_ENDPOINT);
+    http.begin(client, POST_ENDPOINT);
     http.addHeader("Content-Type", "text/plain; charset=utf-8");
     http.addHeader("Authorization", "Token " INFLUX_TOKEN);
 
