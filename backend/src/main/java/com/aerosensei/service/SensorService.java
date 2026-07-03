@@ -237,7 +237,12 @@ public class SensorService {
      * All registered sites with their current 15-minute state — used by the
      * city-wide + per-site escalation job. No Authentication needed (runs as a
      * scheduled system job, so it always sees every site).
+     *
+     * Runs in a read-only transaction: the scheduled caller has no open Hibernate
+     * session, and the per-sensor {@link #getRealTimeReadings} path lazily touches
+     * the CompanySite proxy, which would otherwise throw LazyInitializationException.
      */
+    @Transactional(readOnly = true)
     public List<SiteSensor15MinDTO> getAllSiteStates() {
         return aggregateSites(registryRepository.findAllSensorsDetails());
     }
