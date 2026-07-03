@@ -1,18 +1,17 @@
 // Real-time PM2.5/PM10 breach alerting, running natively inside InfluxDB.
 //
-// Every 2 minutes, average each site's last 5 minutes of air_quality readings
+// Every 20 seconds, average each site's last 5 minutes of air_quality readings
 // and — if a site is over threshold — POST straight to the ai-agent's /alert
 // endpoint (same payload shape the old backend SlidingWindowService sent).
 // The ai-agent composes the Telegram message and forwards it; nothing else in
-// this stack is involved. Re-checking every 2 minutes without extra state
-// means a still-breached site keeps getting re-alerted, mirroring the old
-// ~120s Java cooldown.
+// this stack is involved. Re-checking every 20 seconds without extra state
+// means a still-breached site keeps getting re-alerted at that cadence.
 import "http"
 import "json"
 import "math"
 import "influxdata/influxdb/secrets"
 
-option task = {name: "pm-realtime-alert", every: 2m}
+option task = {name: "pm-realtime-alert", every: 20s}
 
 alertSecret = secrets.get(key: "INTERNAL_ALERT_SECRET")
 
