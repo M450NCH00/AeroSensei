@@ -12,7 +12,7 @@ interface Backup {
   last_modified: string;
 }
 
-const AI_AGENT_URL = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+const AI_AGENT_URL = process.env.NEXT_PUBLIC_AI_AGENT_URL || "/agent";
 
 const fmtSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;

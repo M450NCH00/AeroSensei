@@ -19,19 +19,14 @@ except ImportError:
 import psycopg2
 from retry_requests import retry
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 import json, os, sys
 from collections import Counter
 
 app = FastAPI()
 
-# Allow your Next.js dev server (adjust origins for production)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_methods=["GET"],
-    allow_headers=["*"],
-)
+# CORS is handled entirely by the nginx reverse proxy (see nginx.conf's /ml/
+# location). A localhost-only allowlist here 403'd real deployment origins
+# (e.g. the EC2 public DNS) and duplicated the Access-Control-* headers.
 
 @app.get("/predict/{site_id}")
 def predict(site_id: str):

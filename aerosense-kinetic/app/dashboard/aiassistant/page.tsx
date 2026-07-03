@@ -110,7 +110,7 @@ export default function AIAssistantPage() {
 
     let answer = "Sorry, I could not reach the AI agent. Please check that the service is running.";
     try {
-      const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+      const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "/agent";
       const res = await fetch(`${aiAgentUrl}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

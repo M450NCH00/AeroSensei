@@ -11,8 +11,10 @@ uvicorn main:app --reload --port 8000
 */
 
 const mlAxiosInstance = axios.create({
-  // Point to the ML environment variable, with a fallback just in case
-  baseURL: process.env.NEXT_PUBLIC_ML_API_URL || "http://localhost:8000",
+  // Default to the same-origin relative "/ml" path (proxied by nginx to the
+  // forecast-model container). Override with NEXT_PUBLIC_ML_API_URL to point
+  // at a different origin.
+  baseURL: process.env.NEXT_PUBLIC_ML_API_URL || "/ml",
   
   // ML models can sometimes take a few seconds to process, 
   // so a slightly longer timeout is a good safety measure!

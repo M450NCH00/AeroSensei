@@ -14,7 +14,6 @@ import time
 
 import requests
 from flask import Flask, Response, jsonify, request
-from flask_cors import CORS
 
 import agent
 import config
@@ -31,9 +30,9 @@ _city_wide_suppress_until = 0.0
 
 app = Flask(__name__)
 
-# Allow credentials so the browser sends the httpOnly accessToken cookie.
-_allowed_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
-CORS(app, resources={r"/*": {"origins": _allowed_origin}}, supports_credentials=True)
+# CORS is handled entirely by the nginx reverse proxy (see nginx.conf's /agent/
+# location). Enforcing a localhost-only allowlist here 403'd real deployment
+# origins (e.g. the EC2 public DNS) and duplicated the Access-Control-* headers.
 
 
 @app.route("/health", methods=["GET"])

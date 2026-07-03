@@ -1,4 +1,28 @@
 services:
+  # --- NGINX REVERSE PROXY (CORS + HTTP Load Balancer) ---
+  nginx:
+    image: nginx:alpine
+    container_name: aerosensei-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # TLS certs (generated on the host, not committed — see certs/ in .gitignore).
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
+      - backend
+      - ai-agent
+      - forecast-model
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # --- MESSAGE BROKER ---
   kafka:
     image: apache/kafka:3.7.0
@@ -22,7 +46,11 @@ services:
       KAFKA_LOG_RETENTION_HOURS: 168
       KAFKA_CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1",
+        ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -61,7 +89,11 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
 
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8080/actuator/health || exit 1",
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -146,21 +178,21 @@ services:
       retries: 5
       start_period: 20s
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: pgadmin
-    restart: unless-stopped
-    ports:
-      - "5050:80"
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
-      - PGADMIN_DEFAULT_PASSWORD=admin
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:80 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: pgadmin
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5050:80"
+  #   environment:
+  #     - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+  #     - PGADMIN_DEFAULT_PASSWORD=admin
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget -qO- http://localhost:80 || exit 1"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -205,7 +237,11 @@ services:
       - INFLUX_URL:http://influxdb:8086
       - INFLUX_BUCKET:sensors_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"'"]
+      test:
+        [
+          "CMD-SHELL",
+          'curl -f http://localhost:8081/actuator/health | grep -q ''"status":"UP"''',
+        ]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -244,7 +280,7 @@ services:
       - JWT_SECRET=your-hackathon-super-secret-key-xyz123
       # Regulators carry the 'Government' role; mirror the backend's hasAnyRole('GOVERNMENT','ADMIN').
       - AGENT_ALLOWED_ROLES=GOVERNMENT,ADMIN
-      - FRONTEND_ORIGIN=http://localhost:3000
+      - FRONTEND_ORIGIN=http://localhost
       # --- Internal alerting (backend -> agent -> telegram) ---
       # Shared secret the backend must send (X-Internal-Secret) to trigger /alert and /enforce.
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
@@ -269,7 +305,7 @@ services:
       - MINISTRY_TEST_RECIPIENT=${MINISTRY_TEST_RECIPIENT:-}
       # Public URL the browser uses to download generated PDF reports (matches the
       # host-exposed port and the frontend's NEXT_PUBLIC_AI_AGENT_URL).
-      - AGENT_PUBLIC_URL=http://localhost:5001
+      - AGENT_PUBLIC_URL=http://localhost/agent
       # MinIO (S3) — where generated PDF reports are stored.
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=minioadmin
@@ -285,7 +321,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5001/health')\""]
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:5001/health'')"',
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -321,7 +361,11 @@ services:
     # ports:
     #   - "5002:5002"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5002/health')\""]
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:5002/health'')"',
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -331,6 +375,17 @@ services:
     build:
       context: ./aerosense-kinetic
       dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* vars get baked into the client bundle at build time —
+        # must be passed as build args, not just runtime `environment:` below.
+        # Left EMPTY on purpose: the frontend falls back to same-origin relative
+        # paths (/api, /ml, /agent) so the browser calls whatever host served the
+        # page (localhost in dev, the EC2 DNS/IP in prod) through nginx. Do NOT
+        # hardcode a host here — that ships a bundle that calls the user's own
+        # machine. Set a full origin only to target a *different* backend host.
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_AI_AGENT_URL: ""
+        NEXT_PUBLIC_ML_API_URL: ""
     image: aerosense-frontend:latest
     container_name: aerosense-frontend
     restart: unless-stopped
@@ -342,8 +397,11 @@ services:
       ai-agent:
         condition: service_healthy
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8080
-      - NEXT_PUBLIC_AI_AGENT_URL=http://localhost:5001
+      # Runtime values are inert for NEXT_PUBLIC_* (they're baked at build time,
+      # see args above) — kept empty to match and avoid confusion.
+      - NEXT_PUBLIC_API_URL=
+      - NEXT_PUBLIC_AI_AGENT_URL=
+      - NEXT_PUBLIC_ML_API_URL=
     healthcheck:
       # Use 127.0.0.1 (IPv4), not localhost: inside the container localhost
       # resolves to IPv6 ::1, but next-server listens on IPv4 0.0.0.0 only —
@@ -369,7 +427,11 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f http://localhost:9000/minio/health/live || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -455,7 +517,11 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')\""]
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/docs'')"',
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
