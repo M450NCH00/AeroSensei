@@ -39,6 +39,14 @@ LLM_CONTEXT_WINDOW = int(os.getenv("LLM_CONTEXT_WINDOW", "0"))
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")
 
+# DeepSeek (used only when LLM_PROVIDER=deepseek). Connects DIRECTLY to DeepSeek's
+# OpenAI-compatible, tool-calling API — no LiteLLM. Supply DEEPSEEK_API_KEY through
+# the environment (.env). Default model: "deepseek-v4-flash".
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash").strip()
+DEEPSEEK_API_BASE = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com").strip()
+DEEPSEEK_TIMEOUT = float(os.getenv("DEEPSEEK_TIMEOUT", "60"))
+
 # Max LLM<->tool round trips before we force a final answer.
 MAX_TOOL_ITERATIONS = int(os.getenv("LLM_MAX_TOOL_ITERATIONS", "5"))
 
@@ -57,6 +65,33 @@ WEB_TIMEOUT = float(os.getenv("WEB_TIMEOUT", "15"))
 WEB_MAX_RESULTS = int(os.getenv("WEB_MAX_RESULTS", "5"))
 # Cap fetched page text so a huge page can't blow past the model's context window.
 WEB_FETCH_MAX_CHARS = int(os.getenv("WEB_FETCH_MAX_CHARS", "6000"))
+
+# --- City-wide pollution cause research (on BREACHED escalations) ---
+# When >=50% of sensors breach, web-search likely reasons the whole city's PM is
+# high. Token-saving by design: snippets only (no page fetches), a small result
+# cap, a tight single LLM summarization, and a cache so repeat triggers within the
+# window reuse the same finding instead of re-searching + re-summarizing.
+CITY_NAME = os.getenv("CITY_NAME", "Hanoi").strip()
+POLLUTION_RESEARCH_ENABLED = os.getenv("POLLUTION_RESEARCH_ENABLED", "true").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+POLLUTION_RESEARCH_MAX_RESULTS = int(os.getenv("POLLUTION_RESEARCH_MAX_RESULTS", "8"))
+# Max total web searches per investigation: an initial search plus LLM-chosen
+# follow-ups that chase leads from earlier results. Capped to bound token/time cost.
+POLLUTION_RESEARCH_MAX_SEARCHES = int(os.getenv("POLLUTION_RESEARCH_MAX_SEARCHES", "5"))
+# Hard cap on snippet chars fed to the LLM — the main token lever.
+POLLUTION_RESEARCH_MAX_CHARS = int(os.getenv("POLLUTION_RESEARCH_MAX_CHARS", "3000"))
+# Recency filter for the search: d/w/m/y (past day/week/month/year) or "" for none.
+# Default: past month, so causes reflect the current episode, not years-old articles.
+POLLUTION_RESEARCH_TIME_FILTER = os.getenv("POLLUTION_RESEARCH_TIME_FILTER", "m").strip()
+# Cooldown between web-scrape investigations (seconds; default 30 min). While a
+# breach persists, repeat escalations within this window reuse the last finding
+# instead of scraping again; once it lapses and the city is still breaching, a
+# fresh investigation runs. (Old env name kept as a fallback for compatibility.)
+POLLUTION_RESEARCH_COOLDOWN_SECONDS = int(os.getenv(
+    "POLLUTION_RESEARCH_COOLDOWN_SECONDS",
+    os.getenv("POLLUTION_RESEARCH_CACHE_SECONDS", "1800"),
+))
 
 # --- Auth ---
 # Shared HS256 secret used by the backend to sign JWTs. The agent verifies the
@@ -82,6 +117,9 @@ ALERT_USE_LLM = os.getenv("ALERT_USE_LLM", "false").strip().lower() in ("1", "tr
 TELEGRAM_NOTIFY_URL = os.getenv("TELEGRAM_NOTIFY_URL", "http://telegram-bot:5002/notify").rstrip("/")
 TELEGRAM_NOTIFY_SECRET = os.getenv("TELEGRAM_NOTIFY_SECRET", "").strip()
 TELEGRAM_NOTIFY_TIMEOUT = float(os.getenv("TELEGRAM_NOTIFY_TIMEOUT", "15"))
+# While a city-wide escalation is active, suppress per-site Telegram alerts for
+# this many minutes so the flood of individual site alerts doesn't 429 Telegram.
+CITY_WIDE_SUPPRESS_MINUTES = float(os.getenv("CITY_WIDE_SUPPRESS_MINUTES", "30"))
 
 # --- PDF report generation ---
 # Generated PDFs are stored in MinIO (S3) and streamed back via GET /reports/<file>.
@@ -89,6 +127,18 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
 MINIO_REPORTS_BUCKET = os.getenv("MINIO_REPORTS_BUCKET", "reports")
+# Bucket where the InfluxDB->MinIO backup stores compressed historical data.
+# Government users list + download these via the Historical Data tab, and trigger
+# an on-demand "Backup now" that reads InfluxDB directly.
+MINIO_BACKUPS_BUCKET = os.getenv("MINIO_BACKUPS_BUCKET", "influx-backups")
+
+# InfluxDB source for the on-demand "Backup now" (mirrors the scheduled cron).
+INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086").rstrip("/")
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "my-super-secret-admin-token-12345")
+INFLUX_ORG = os.getenv("INFLUX_ORG", "my-org")
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "sensors_data")
+# Default window (days) for on-demand backups: 1 = the last day up to now.
+BACKUP_LOOKBACK_DAYS = int(os.getenv("BACKUP_LOOKBACK_DAYS", "1"))
 # Public base URL of this agent, used to build absolute download links the
 # browser can open. Matches the frontend's NEXT_PUBLIC_AI_AGENT_URL.
 AGENT_PUBLIC_URL = os.getenv("AGENT_PUBLIC_URL", "http://localhost:5001").rstrip("/")
@@ -121,6 +171,26 @@ FINE_MAX_AMOUNT = float(os.getenv("FINE_MAX_AMOUNT", "100000000"))
 FINE_ROUND = float(os.getenv("FINE_ROUND", "100000"))
 
 
+# --- City-wide ministry email escalation ---
+# When the backend detects that a large share of Hanoi's sensors are unhealthy, it
+# calls POST /ministry-alert; the agent emails tailored directives to each ministry.
+# If SMTP_HOST is unset, emails are composed and LOGGED instead of sent (safe dev
+# default), so the flow is fully testable without real mail credentials.
+MINISTRY_EMAIL_ENABLED = os.getenv("MINISTRY_EMAIL_ENABLED", "true").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() in ("1", "true", "yes", "on")
+SMTP_FROM = os.getenv("SMTP_FROM", "AeroSense Alerts <no-reply@aerosensei.vn>")
+SMTP_TIMEOUT = float(os.getenv("SMTP_TIMEOUT", "20"))
+# Optional: route EVERY ministry email to this single inbox instead of the real
+# per-ministry addresses (handy for demos/testing). Empty = use real addresses.
+MINISTRY_TEST_RECIPIENT = os.getenv("MINISTRY_TEST_RECIPIENT", "").strip()
+
+
 def get_provider():
     """Instantiate the configured LLM provider (single source of truth)."""
     if LLM_PROVIDER == "ollama":
@@ -137,6 +207,16 @@ def get_provider():
             api_key=LITELLM_API_KEY,
             context_window=LLM_CONTEXT_WINDOW,
         )
+    if LLM_PROVIDER == "deepseek":
+        if not DEEPSEEK_API_KEY:
+            raise ValueError("LLM_PROVIDER=deepseek but DEEPSEEK_API_KEY is not set.")
+        from providers.deepseek_provider import DeepSeekProvider
+        return DeepSeekProvider(
+            model=DEEPSEEK_MODEL,
+            api_key=DEEPSEEK_API_KEY,
+            api_base=DEEPSEEK_API_BASE,
+            timeout=DEEPSEEK_TIMEOUT,
+        )
     raise ValueError(
-        f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r} (expected 'ollama', 'bedrock', or 'litellm')"
+        f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r} (expected 'ollama', 'bedrock', 'litellm', or 'deepseek')"
     )

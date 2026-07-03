@@ -51,5 +51,8 @@ VALUES
     ((SELECT id FROM users WHERE email = 'vietcap.securities@aerosensei.vn'),                     'Vietcap Securities',                          15638.36, (SELECT id FROM sectors WHERE name = 'Financial Services')),
     ((SELECT id FROM users WHERE email = 'kdh@aerosensei.vn'),                                    'KDH',                                          7004.80, (SELECT id FROM sectors WHERE name = 'Real Estate')),
     ((SELECT id FROM users WHERE email = 'duc.giang.chemicals.group@aerosensei.vn'),              'Duc Giang Chemicals Group',                   11006.12, (SELECT id FROM sectors WHERE name = 'Materials')),
-    ((SELECT id FROM users WHERE email = 'vinh.hoan.corporation@aerosensei.vn'),                  'Vinh Hoan Corporation',                        9346.93, (SELECT id FROM sectors WHERE name = 'Consumer Staples'))
+    ((SELECT id FROM users WHERE email = 'vinh.hoan.corporation@aerosensei.vn'),                  'Vinh Hoan Corporation',                        9346.93, (SELECT id FROM sectors WHERE name = 'Consumer Staples')),
+    -- Government regulator: owns the public/ambient air-quality monitoring stations
+    -- (non-industrial sites). Linked to the seeded Government user.
+    ((SELECT id FROM users WHERE email = 'government@example.com'),                               'Government Environmental Agency',                  0.00, NULL)
 ON CONFLICT DO NOTHING;

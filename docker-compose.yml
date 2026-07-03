@@ -226,12 +226,16 @@ services:
       minio:
         condition: service_healthy
     environment:
-      # --- LLM provider (configurable; switch to bedrock on the AWS migration) ---
-      - LLM_PROVIDER=litellm
-      # IMPORTANT: must be a tool-capable model. `ollama pull qwen2.5:7b-instruct` first.
-      - LLM_MODEL=Qwen3.6-27B
-      - LITELLM_API_BASE=http://192.168.10.45:4000/
-      - LITELLM_API_KEY=sk-pIQI4hKaiuWGIOUOYl9uFQ
+      # --- LLM provider ---
+      # Using DeepSeek's OpenAI-compatible, tool-calling API (via LiteLLM).
+      # Supply DEEPSEEK_API_KEY in ./.env; DEEPSEEK_MODEL defaults to deepseek-chat.
+      - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      # Legacy LiteLLM-gateway / Ollama settings (unused while LLM_PROVIDER=deepseek).
+      - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash}
+      - LITELLM_API_BASE=${LITELLM_API_BASE:-}
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
       - OLLAMA_HOST=http://host.docker.internal:11434
       - LLM_MAX_TOOL_ITERATIONS=5
       # --- Tool execution target (existing backend) ---
@@ -251,6 +255,18 @@ services:
       # Telegram bot push endpoint + its NOTIFY_SECRET (must match below).
       - TELEGRAM_NOTIFY_URL=http://telegram-bot:5002/notify
       - TELEGRAM_NOTIFY_SECRET=${NOTIFY_SECRET:-}
+      # --- City-wide ministry email escalation (backend -> agent -> ministries) ---
+      # If SMTP_HOST is unset, ministry emails are composed and LOGGED (not sent),
+      # so the flow works out-of-the-box in dev. Set these to send real email.
+      - MINISTRY_EMAIL_ENABLED=${MINISTRY_EMAIL_ENABLED:-true}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+      - SMTP_FROM=${SMTP_FROM:-AeroSense Alerts <no-reply@aerosensei.vn>}
+      # Optional: funnel every ministry email to one inbox for demos/testing.
+      - MINISTRY_TEST_RECIPIENT=${MINISTRY_TEST_RECIPIENT:-}
       # Public URL the browser uses to download generated PDF reports (matches the
       # host-exposed port and the frontend's NEXT_PUBLIC_AI_AGENT_URL).
       - AGENT_PUBLIC_URL=http://localhost:5001
@@ -259,6 +275,13 @@ services:
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin123
       - MINIO_REPORTS_BUCKET=reports
+      # Backups bucket the cron writes to; served via the Historical Data tab.
+      - MINIO_BACKUPS_BUCKET=influx-backups
+      # InfluxDB source for the on-demand "Backup now" trigger.
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INFLUX_BUCKET=sensors_data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -401,9 +424,13 @@ services:
       - PG_DB=postgresdb
       - PG_USER=admin
       - PG_PASS=ChangeThisPassword123!
+      # Redis holds the demo emission-mode flag set from the frontend buttons.
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
       - influxdb
       - postgres
+      - redis
 
   # --- FORECAST MODEL API (PM2.5/PM10 short-horizon prediction) ---
   forecast-model:
