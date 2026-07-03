@@ -399,6 +399,33 @@ def _truncate(s, n):
 
 # --- public entry point ---------------------------------------------------
 
+def _report_base_url() -> str:
+    """Public base URL for report download links.
+
+    AGENT_PUBLIC_URL is baked as ``http://localhost/agent`` for local dev, so
+    using it verbatim hands the user a link to *their own* machine over plain
+    HTTP. Instead, derive the origin from the actual incoming request (which the
+    nginx proxy forwards as the original Host + X-Forwarded-Proto), keeping only
+    the mount path (e.g. ``/agent``) from AGENT_PUBLIC_URL. That yields a correct,
+    clickable absolute URL on whatever host the user is on (the EC2 DNS over
+    HTTPS in prod, localhost in dev). Falls back to AGENT_PUBLIC_URL if there is
+    no request context (e.g. a scheduled report).
+    """
+    from urllib.parse import urlparse
+
+    prefix = urlparse(config.AGENT_PUBLIC_URL).path.rstrip("/")  # e.g. "/agent"
+    try:
+        from flask import has_request_context, request
+
+        if has_request_context():
+            proto = request.headers.get("X-Forwarded-Proto") or request.scheme
+            host = request.headers.get("X-Forwarded-Host") or request.host
+            return f"{proto}://{host}{prefix}".rstrip("/")
+    except Exception:
+        log.warning("Could not derive report base URL from request; using AGENT_PUBLIC_URL")
+    return config.AGENT_PUBLIC_URL
+
+
 def generate_report(args: dict, token: str) -> dict:
     """Build a PDF report and return a download URL + summary for the agent.
 
@@ -426,7 +453,7 @@ def generate_report(args: dict, token: str) -> dict:
 
     total_fines = sum(_num(f.get("amount")) or 0 for f in facts["fines"])
     return {
-        "report_url": f"{config.AGENT_PUBLIC_URL}/reports/{filename}",
+        "report_url": f"{_report_base_url()}/reports/{filename}",
         "company": facts["company_name"],
         "period": _period_label(start, end),
         "sites_covered": len(facts["sites"]),
