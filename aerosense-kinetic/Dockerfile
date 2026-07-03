@@ -5,6 +5,16 @@
 FROM node:20-slim AS builder
 WORKDIR /app
 
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time, so they
+# must arrive as build args (docker-compose passes them via build.args), not
+# just as runtime `environment:` — those come too late for the client bundle.
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_AI_AGENT_URL
+ARG NEXT_PUBLIC_ML_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_AI_AGENT_URL=${NEXT_PUBLIC_AI_AGENT_URL}
+ENV NEXT_PUBLIC_ML_API_URL=${NEXT_PUBLIC_ML_API_URL}
+
 COPY package.json package-lock.json* ./
 # Retry on transient registry resets (ECONNRESET) instead of failing the whole build
 RUN npm ci --no-audit --no-fund \
