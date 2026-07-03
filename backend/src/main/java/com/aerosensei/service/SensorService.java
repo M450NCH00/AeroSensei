@@ -230,6 +230,20 @@ public class SensorService {
             results = isGovernment ? registryRepository.findAllSensorsBySiteId(siteId) : registryRepository.findSensorsBySiteAndEmail(userEmail, siteId);
         }
 
+        return aggregateSites(results);
+    }
+
+    /**
+     * All registered sites with their current 15-minute state — used by the
+     * city-wide + per-site escalation job. No Authentication needed (runs as a
+     * scheduled system job, so it always sees every site).
+     */
+    public List<SiteSensor15MinDTO> getAllSiteStates() {
+        return aggregateSites(registryRepository.findAllSensorsDetails());
+    }
+
+    /** Aggregate raw sensor rows into per-site 15-minute DTOs (grouped by site, with state). */
+    private List<SiteSensor15MinDTO> aggregateSites(List<Object[]> results) {
         // Group the sensors by Site ID (row[1])
         Map<Integer, List<Object[]>> groupedBySite = results.stream()
                 .collect(Collectors.groupingBy(row -> (Integer) row[1]));

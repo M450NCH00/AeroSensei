@@ -36,6 +36,92 @@ def get_recent_broadcasts() -> list:
     with _LOCK:
         return list(reversed(_BROADCASTS))
 
+
+# --- Per-site company alerts ---------------------------------------------------
+# Unlike the city-wide broadcasts (an append-only log), site alerts are a
+# latest-per-site map: while a site is WARNING/BREACHED it holds one alert; when
+# the site recovers the backend clears it. So the feed always reflects the set of
+# sites that are currently unhealthy, not an unbounded history.
+_SITE_ALERTS: dict = {}
+_SITE_LOCK = threading.Lock()
+
+# Templated advice for the OWNING COMPANY of a site, based on Vietnam MOH / WHO
+# air-quality guidance. Deterministic (no LLM) — mirrors the MINISTRIES pattern.
+COMPANY_ADVICE = {
+    "WARNING": [
+        "Reduce or defer high-emission operations at the site until readings return to safe levels.",
+        "Intensify on-site dust suppression: water-spray exposed areas, cover stockpiles and haul roads, and wash vehicle wheels before they leave.",
+        "Verify that all abatement equipment (scrubbers, bag filters, cyclones) is running at full efficiency; service any underperforming unit.",
+        "Issue certified N95/FFP2 masks to on-site workers and shorten continuous outdoor shifts.",
+        "Advise sensitive workers (respiratory/cardiac conditions, pregnant) to limit strenuous outdoor exertion.",
+        "Monitor the site's PM2.5/PM10 readings closely and prepare to escalate emission-reduction measures if levels keep rising.",
+    ],
+    "BREACHED": [
+        "Immediately halt or scale back the site's highest-emitting processes until air quality recovers.",
+        "Enforce full dust control and stop any activity that visibly generates dust (cutting, crushing, uncovered transfer, open burning).",
+        "Suspend non-essential outdoor work; for essential tasks, provide N95/FFP2 respirators and rotate workers to limit exposure.",
+        "Move vulnerable workers indoors and follow MOH emergency respiratory guidance (keep windows closed, use filtered/air-conditioned spaces).",
+        "Report the exceedance to the Ministry of Natural Resources and Environment (MONRE) and the local environmental authority as required by regulation.",
+        "Activate the site's emission-reduction contingency plan and keep it in force until readings fall back below the limit.",
+    ],
+}
+
+
+def compose_company_advice(level: str) -> str:
+    """Markdown bullet list of what the owning company should do at this level."""
+    level = level.upper()
+    actions = COMPANY_ADVICE.get(level, [])
+    headline = (
+        "Your site has **BREACHED** the air-quality limit. Per MOH guidance, take immediate action:"
+        if level == "BREACHED"
+        else "Your site is at a **WARNING** level. Act now to prevent it from getting worse:"
+    )
+    bullets = "\n".join(f"- {a}" for a in actions)
+    return f"{headline}\n\n{bullets}"
+
+
+def upsert_site_alert(site_id, site_name: str, company_name: str, level: str,
+                      pm2_5=None, pm10=None) -> dict:
+    """Store/refresh the current alert for one site (WARNING or BREACHED)."""
+    level = str(level or "").upper()
+    alert = {
+        "id": str(site_id),
+        "site_id": site_id,
+        "site_name": site_name,
+        "company_name": company_name,
+        "level": level,
+        "pm2_5": pm2_5,
+        "pm10": pm10,
+        "advice": compose_company_advice(level),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    with _SITE_LOCK:
+        _SITE_ALERTS[str(site_id)] = alert
+    return alert
+
+
+def clear_site_alert(site_id) -> None:
+    """Remove a site's alert once it has recovered to SAFE."""
+    with _SITE_LOCK:
+        _SITE_ALERTS.pop(str(site_id), None)
+
+
+def clear_all_site_alerts() -> None:
+    """Drop every site alert (used when the demo is reset to normal)."""
+    with _SITE_LOCK:
+        _SITE_ALERTS.clear()
+
+
+def get_site_alerts() -> list:
+    """Current site alerts, BREACHED first then newest."""
+    with _SITE_LOCK:
+        alerts = list(_SITE_ALERTS.values())
+    alerts.sort(key=lambda a: (0 if a["level"] == "BREACHED" else 1, a["timestamp"]), reverse=False)
+    # BREACHED (0) before WARNING (1); within a level, newest first.
+    alerts.sort(key=lambda a: a["timestamp"], reverse=True)
+    alerts.sort(key=lambda a: 0 if a["level"] == "BREACHED" else 1)
+    return alerts
+
 # Each ministry: a stable key, display name, contact email, and the action it
 # should take at each escalation level. Emails/addresses are examples — override
 # per deployment, or set MINISTRY_TEST_RECIPIENT to funnel them all to one inbox.

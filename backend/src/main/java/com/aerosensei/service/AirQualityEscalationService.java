@@ -11,10 +11,18 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import com.aerosensei.dto.SiteSensor15MinDTO;
+import com.aerosensei.enums.SiteState;
+
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * City-wide air-quality escalation. Periodically classifies every live sensor
@@ -62,6 +70,12 @@ public class AirQualityEscalationService {
     @Value("${agent.ministry.url:http://ai-agent:5001/ministry-alert}")
     private String agentMinistryUrl;
 
+    @Value("${agent.site.url:http://ai-agent:5001/site-alert}")
+    private String agentSiteUrl;
+
+    @Value("${agent.site.clear.url:http://ai-agent:5001/site-alerts/clear}")
+    private String agentSiteClearUrl;
+
     // Reuses the shared internal secret used for the other agent hand-offs.
     @Value("${agent.api.secret:}")
     private String internalApiSecret;
@@ -72,6 +86,10 @@ public class AirQualityEscalationService {
     private volatile String lastNotifiedLevel = "NONE";
     private volatile Instant lastNotifiedAt = Instant.EPOCH;
 
+    // Per-site dedup: the last level we told the agent about, keyed by site id.
+    // Prevents re-pushing a site alert every cycle while a site stays unhealthy.
+    private final Map<Integer, String> lastSiteLevel = new ConcurrentHashMap<>();
+
     /**
      * Runs on a fixed schedule (default every 15 minutes). Override with
      * {@code escalation.check.rate-ms}.
@@ -80,11 +98,24 @@ public class AirQualityEscalationService {
     public void checkAndEscalate() {
         if (!enabled) return;
 
-        int[] counts = sensorService.getSystemSensorStateCounts();
-        int total = counts[0], warnings = counts[1], breaches = counts[2];
+        // All sites with a current 15-min state; keep only online ones (with data).
+        List<SiteSensor15MinDTO> liveSites = sensorService.getAllSiteStates().stream()
+                .filter(s -> s.getAvgPm25() != null || s.getAvgPm10() != null)
+                .collect(Collectors.toList());
+
+        // 1) Per-site company alerts (deduped across cycles).
+        syncSiteAlerts(liveSites);
+
+        // 2) City-wide department escalation — based on the share of SITES.
+        int total = liveSites.size();
         if (total == 0) {
-            log.debug("Escalation check: no live sensors; skipping.");
+            log.debug("Escalation check: no live sites; skipping city-wide.");
             return;
+        }
+        int warnings = 0, breaches = 0;
+        for (SiteSensor15MinDTO s : liveSites) {
+            if (s.getState() == SiteState.BREACHED) breaches++;
+            else if (s.getState() == SiteState.WARNING) warnings++;
         }
 
         double breachedShare = (double) breaches / total;
@@ -131,6 +162,17 @@ public class AirQualityEscalationService {
         level = level.toUpperCase();
         if (!"WARNING".equals(level) && !"BREACHED".equals(level)) return;
 
+        // Per-site: immediately raise a company alert for every site at the forced
+        // level, so the demo shows site alerts without waiting for the next sweep.
+        try {
+            for (SiteSensor15MinDTO s : sensorService.getAllSiteStates()) {
+                sendSiteAlert(s, level);
+                lastSiteLevel.put(s.getSiteId(), level);
+            }
+        } catch (Exception e) {
+            log.error("forceEscalation: site-alert push failed: {}", e.getMessage());
+        }
+
         int total = (int) registryRepository.count();
         boolean breached = "BREACHED".equals(level);
         int breaches = breached ? total : 0;
@@ -146,6 +188,73 @@ public class AirQualityEscalationService {
     /** Reset dedup state (e.g. when the demo is reset to normal) so the next episode re-alerts. */
     public void resetState() {
         lastNotifiedLevel = "NONE";
+        lastSiteLevel.clear();
+        // Tell the agent to drop all per-site alerts so the Alerts page clears.
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Secret", internalApiSecret);
+            restTemplate.postForObject(agentSiteClearUrl, new HttpEntity<>(headers), String.class);
+        } catch (Exception e) {
+            log.error("Failed to clear site alerts on reset: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Push a /site-alert to the agent only when a site's level changes (first
+     * detection, WARNING&lt;-&gt;BREACHED, or recovery to SAFE). Sites that go offline
+     * have any prior alert cleared.
+     */
+    private void syncSiteAlerts(List<SiteSensor15MinDTO> liveSites) {
+        Set<Integer> seen = new HashSet<>();
+        for (SiteSensor15MinDTO s : liveSites) {
+            seen.add(s.getSiteId());
+            String level = s.getState() == SiteState.BREACHED ? "BREACHED"
+                    : s.getState() == SiteState.WARNING ? "WARNING" : "SAFE";
+            String prev = lastSiteLevel.get(s.getSiteId());
+            if (level.equals(prev)) continue; // no change since last cycle
+
+            if ("SAFE".equals(level)) {
+                if (prev != null && !"SAFE".equals(prev)) {
+                    sendSiteAlert(s, "SAFE"); // recovered -> clear
+                }
+            } else {
+                sendSiteAlert(s, level);
+            }
+            lastSiteLevel.put(s.getSiteId(), level);
+        }
+        // Sites that dropped offline this cycle: clear any lingering alert.
+        for (Map.Entry<Integer, String> e : lastSiteLevel.entrySet()) {
+            if (!seen.contains(e.getKey()) && !"SAFE".equals(e.getValue())) {
+                sendSiteAlertRaw(e.getKey(), null, null, "SAFE", null, null);
+                e.setValue("SAFE");
+            }
+        }
+    }
+
+    private void sendSiteAlert(SiteSensor15MinDTO site, String level) {
+        sendSiteAlertRaw(site.getSiteId(), site.getSiteName(), site.getCompanyName(),
+                level, site.getAvgPm25(), site.getAvgPm10());
+    }
+
+    private void sendSiteAlertRaw(Integer siteId, String siteName, String companyName,
+                                  String level, Double pm25, Double pm10) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Secret", internalApiSecret);
+
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("site_id", siteId);
+            body.put("site_name", siteName);
+            body.put("company_name", companyName);
+            body.put("level", level);
+            body.put("pm2_5", pm25);
+            body.put("pm10", pm10);
+
+            restTemplate.postForObject(agentSiteUrl, new HttpEntity<>(body, headers), String.class);
+        } catch (Exception e) {
+            log.error("Failed to dispatch site alert (site {}, {}): {}", siteId, level, e.getMessage());
+        }
     }
 
     /** Fire on first detection, on escalation (WARNING -> BREACHED), or after the cooldown. */
