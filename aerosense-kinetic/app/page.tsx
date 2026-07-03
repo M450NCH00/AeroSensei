@@ -160,12 +160,16 @@ export default function HomePage() {
           <div className="font-black text-2xl tracking-widest drop-shadow-md">AEROSENSE</div>
           <div className="flex items-center gap-4">
             <Link href="/public-map">
-              <button className="hidden md:flex items-center gap-2 px-6 py-2 bg-transparent border border-white/10 text-gray-300 font-medium rounded-full hover:bg-white/10 hover:text-white transition-all duration-300">
-                <Map size={16} /> Live Quality Map
+              <button 
+                className="px-6 py-2 bg-white/10 border border-white/20 font-medium rounded-full hover:bg-white hover:text-black transition-all duration-300"
+              >
+                Live Quality Map
               </button>
             </Link>
             <Link href="/login">
-              <button className="px-6 py-2 bg-white/10 border border-white/20 font-medium rounded-full hover:bg-white hover:text-black transition-all duration-300">
+              <button 
+                className="px-6 py-2 bg-white/10 border border-white/20 font-medium rounded-full hover:bg-white hover:text-black transition-all duration-300"
+              >
                 Launch Dashboard
               </button>
             </Link>

@@ -121,13 +121,13 @@ public class SensorController {
     }
 
     // URL: GET http://localhost:8081/api/sensors/public/all-readings-15m
-    @GetMapping("/public/all-readings-15m")
-    public ResponseEntity<List<SiteSensor15MinDTO>> getSiteSensors15MinAverageForPublic(
+    @GetMapping("/public/site/history")
+    public ResponseEntity<List<SiteHistoricalDataDTO>> getSiteSensors15MinAverageForPublic(
             @RequestParam BigDecimal lat,
             @RequestParam BigDecimal lon) {
 
-        List<SiteSensor15MinDTO> data = sensorService.getSiteSensors15MinReadingsForPublic(lat, lon);
-        return ResponseEntity.ok(data);
+        List<SiteHistoricalDataDTO> historyData = sensorService.getSiteHistoricalAverageForPublic(lat, lon);
+        return ResponseEntity.ok(historyData);
     }
 
     // URL: GET http://localhost:8081/api/sensors/public/forecast?lat=1.4500&lon=103.7500

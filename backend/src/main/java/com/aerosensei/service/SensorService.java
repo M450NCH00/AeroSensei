@@ -302,99 +302,6 @@ public class SensorService {
         return responseList;
     }
 
-    // =====================================================
-    // GET 15-MINUTE READINGS AGGREGATED BY SITE FOR PUBLIC
-    // =====================================================
-    public List<SiteSensor15MinDTO> getSiteSensors15MinReadingsForPublic(BigDecimal lat, BigDecimal lon) {
-        logs.info("Searching for nearest sensor site to Lat: {}, Lon: {}", lat, lon);
-
-        // 1. Ask PostgreSQL for the absolute closest site ID
-        Integer nearestSiteId = registryRepository.findNearestSiteId(lat.doubleValue(), lon.doubleValue());
-
-        if (nearestSiteId == null) {
-            throw new RuntimeException("No active sensor sites found to generate a forecast.");
-        }
-
-        List<Object[]> results;
-
-        logs.info("Fetching 15m readings for Site: {} for General Public", nearestSiteId);
-        results = registryRepository.findAllSensorsBySiteId(nearestSiteId);
-
-        // Group the sensors by Site ID (row[1])
-        Map<Integer, List<Object[]>> groupedBySite = results.stream()
-                .collect(Collectors.groupingBy(row -> (Integer) row[1]));
-
-        List<SiteSensor15MinDTO> responseList = new ArrayList<>();
-
-        // Iterate through each Site and calculate aggregated values
-        for (Map.Entry<Integer, List<Object[]>> entry : groupedBySite.entrySet()) {
-            List<Object[]> siteSensors = entry.getValue();
-
-            Object[] firstRow = siteSensors.get(0);
-
-            SiteSensor15MinDTO siteDto = new SiteSensor15MinDTO();
-            siteDto.setCompanyName((String) firstRow[0]);
-            siteDto.setSiteId((Integer) firstRow[1]);
-            siteDto.setSiteName((String) firstRow[2]);
-            siteDto.setLatitude((BigDecimal) firstRow[4]);
-            siteDto.setLongitude((BigDecimal) firstRow[5]);
-
-            double totalAvgPm25 = 0.0, totalAvgPm10 = 0.0;
-            double absoluteMaxPm25 = -1.0, absoluteMaxPm10 = -1.0;
-            int validPm25Count = 0, validPm10Count = 0;
-            Instant latestCalculation = Instant.MIN;
-
-            // Fetch readings for every sensor at this site
-            for (Object[] row : siteSensors) {
-                String sensorId = (String) row[3];
-                SensorReadingsDTO sensorReadings = getRealTimeReadings(sensorId);
-
-                // Accumulate PM 2.5
-                if (sensorReadings.getAvgPm25() != null) {
-                    totalAvgPm25 += sensorReadings.getAvgPm25();
-                    validPm25Count++;
-                    if (sensorReadings.getMaxPm25() != null && sensorReadings.getMaxPm25() > absoluteMaxPm25) {
-                        absoluteMaxPm25 = sensorReadings.getMaxPm25();
-                    }
-                }
-
-                // Accumulate PM 10
-                if (sensorReadings.getAvgPm10() != null) {
-                    totalAvgPm10 += sensorReadings.getAvgPm10();
-                    validPm10Count++;
-                    if (sensorReadings.getMaxPm10() != null && sensorReadings.getMaxPm10() > absoluteMaxPm10) {
-                        absoluteMaxPm10 = sensorReadings.getMaxPm10();
-                    }
-                }
-
-                if (sensorReadings.getLastCalculated() != null && sensorReadings.getLastCalculated().isAfter(latestCalculation)) {
-                    latestCalculation = sensorReadings.getLastCalculated();
-                }
-            }
-
-            // Calculate Final Site Numbers
-            Double finalAvgPm25 = validPm25Count > 0 ? (totalAvgPm25 / validPm25Count) : null;
-            Double finalMaxPm25 = validPm25Count > 0 ? absoluteMaxPm25 : null;
-
-            Double finalAvgPm10 = validPm10Count > 0 ? (totalAvgPm10 / validPm10Count) : null;
-            Double finalMaxPm10 = validPm10Count > 0 ? absoluteMaxPm10 : null;
-
-            if (finalAvgPm25 != null) siteDto.setAvgPm25(Math.round(finalAvgPm25 * 100.0) / 100.0);
-            if (finalMaxPm25 != null) siteDto.setMaxPm25(Math.round(finalMaxPm25 * 100.0) / 100.0);
-            if (finalAvgPm10 != null) siteDto.setAvgPm10(Math.round(finalAvgPm10 * 100.0) / 100.0);
-            if (finalMaxPm10 != null) siteDto.setMaxPm10(Math.round(finalMaxPm10 * 100.0) / 100.0);
-
-            siteDto.setLastCalculated(latestCalculation == Instant.MIN ? null : latestCalculation);
-
-            // Delegate to the new helper method (only passing averages!)
-            determineStateAndBreach(siteDto, finalAvgPm25, finalAvgPm10);
-
-            responseList.add(siteDto);
-        }
-
-        return responseList;
-    }
-
     // clustering area sensor function
     public List<ClusterMaxDTO> getClusteredMaxInArea(
             BigDecimal minLat, BigDecimal maxLat, BigDecimal minLon, BigDecimal maxLon, int zoom, Authentication authentication) {
@@ -1016,6 +923,79 @@ public class SensorService {
 
         return new Object[]{finalState, breachType};
     }
+
+    // ===========================================================
+    // GET 12-HOUR HISTORICAL AVERAGE FOR NEAREST SITE FOR PUBLIC
+    // ===========================================================
+    public List<SiteHistoricalDataDTO> getSiteHistoricalAverageForPublic(BigDecimal lat, BigDecimal lon) {
+        logs.info("Searching for nearest sensor site to Lat: {}, Lon: {}", lat, lon);
+
+        // 1. Ask PostgreSQL for the absolute closest site ID
+        Integer nearestSiteId = registryRepository.findNearestSiteId(lat.doubleValue(), lon.doubleValue());
+
+        if (nearestSiteId == null) {
+            throw new RuntimeException("No active sensor sites found to generate a forecast.");
+        }
+
+        // Fetch allowed UUIDs from PostgreSQL based on role
+        List<String> sensorUuids;
+        sensorUuids = registryRepository.findSensorUuidsBySiteId(nearestSiteId);
+
+        // If the site doesn't exist, doesn't belong to the company, or has no sensors -> return empty
+        if (sensorUuids == null || sensorUuids.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // Build the dynamic Flux filter string for the UUIDs
+        // Result looks like: r.sensor_id == "uuid1" or r.sensor_id == "uuid2"
+        String uuidFilter = sensorUuids.stream()
+                .map(uuid -> "r.sensor_id == \"" + uuid + "\"")
+                .collect(Collectors.joining(" or "));
+
+        // The 12-Hour InfluxDB Query
+        // group(columns: ["_field"]) pools all sensors at the site together before averaging
+        String fluxQuery = String.format(
+                "from(bucket:\"%s\") " +
+                        "|> range(start: -12h) " +
+                        "|> filter(fn: (r) => r._measurement == \"air_quality\") " +
+                        "|> filter(fn: (r) => %s) " +
+                        "|> group(columns: [\"_field\"]) " +
+                        "|> aggregateWindow(every: 1h, fn: mean, createEmpty: false)",
+                bucket, uuidFilter
+        );
+
+        logs.info("Executing 12-hour historical query for site {}. Sensors involved: {}", nearestSiteId, sensorUuids.size());
+        List<FluxTable> tables = influxDBClient.getQueryApi().query(fluxQuery, org);
+
+        // 4. Map the results by Timestamp so PM2.5 and PM10 merge into the same DTO
+        Map<Instant, SiteHistoricalDataDTO> timeSeriesMap = new HashMap<>();
+
+        for (FluxTable table : tables) {
+            for (FluxRecord record : table.getRecords()) {
+                Instant time = record.getTime();
+                String field = record.getField();
+                Double value = (Double) record.getValue();
+
+                if (value == null) continue;
+
+                // Create or fetch the DTO for this specific hour
+                SiteHistoricalDataDTO dto = timeSeriesMap.computeIfAbsent(time, SiteHistoricalDataDTO::new);
+
+                if ("pm2_5".equals(field)) {
+                    dto.setPm25(Math.round(value * 100.0) / 100.0);
+                } else if ("pm10".equals(field)) {
+                    dto.setPm10(Math.round(value * 100.0) / 100.0);
+                }
+            }
+        }
+
+        // 5. Convert map to a sorted list (oldest to newest) for graphing
+        List<SiteHistoricalDataDTO> sortedData = new ArrayList<>(timeSeriesMap.values());
+        sortedData.sort(Comparator.comparing(SiteHistoricalDataDTO::getTimestamp));
+
+        return sortedData;
+    }
+
 
     // ==========================================
     // GET FORECAST BY USER COORDINATES
