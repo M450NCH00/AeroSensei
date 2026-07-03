@@ -424,6 +424,8 @@ services:
       - PG_DB=postgresdb
       - PG_USER=admin
       - PG_PASS=ChangeThisPassword123!
+      - OPENAQ_API_KEY=${OPENAQ_API_KEY:-}
+      - OPENAQ_REFRESH_SECONDS=${OPENAQ_REFRESH_SECONDS:-600}
       # Redis holds the demo emission-mode flag set from the frontend buttons.
       - REDIS_HOST=redis
       - REDIS_PORT=6379
