@@ -127,4 +127,17 @@ public class SensorController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
+
+    // URL: GET http://localhost:8081/api/sensors/public/forecast?lat=1.4500&lon=103.7500
+    @GetMapping("/forecast")
+    public ResponseEntity<?> getForecast(
+            @RequestParam BigDecimal lat,
+            @RequestParam BigDecimal lon) {
+        try {
+            ForecastResponseDTO forecast = sensorService.getForecastByCoordinates(lat, lon);
+            return ResponseEntity.ok(forecast);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", e.getMessage()));
+        }
+    }
 }
