@@ -232,6 +232,9 @@ services:
       # Enable the agent auto-fine hand-off after the nightly PM check (off by default).
       - ENFORCEMENT_AUTO_FINE=${ENFORCEMENT_AUTO_FINE:-false}
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      # Forecast (ML) engine — reached by its compose service name (maps to the
+      # Spring property ml.api.url used in SensorService).
+      - ML_API_URL=http://forecast-model:8000
       - INFLUX_ORG:my-org
       - INFLUX_TOKEN:my-super-secret-admin-token-12345
       - INFLUX_URL:http://influxdb:8086

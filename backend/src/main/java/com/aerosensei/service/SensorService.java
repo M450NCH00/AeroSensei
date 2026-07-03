@@ -54,7 +54,10 @@ public class SensorService {
     @Value("${influxdb.bucket}")
     private String bucket;
 
-    @Value("${ml.api.url:http://localhost:8000}")
+    // Reach the forecast service by its Docker Compose service name — inside the
+    // backend container "localhost" is the backend itself, not the ML engine.
+    // Override with ML_API_URL (e.g. http://localhost:8000 for a local run).
+    @Value("${ml.api.url:http://forecast-model:8000}")
     private String mlApiUrl;
 
     private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
