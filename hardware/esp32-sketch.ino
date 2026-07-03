@@ -20,8 +20,8 @@
 // =====================================================
 // WiFi Configuration
 // =====================================================
-#define WIFI_SSID "CW_LOVE_ZM"
-#define WIFI_PASSWORD "123456789"
+#define WIFI_SSID "OPPO Reno8 5G"
+#define WIFI_PASSWORD "i735csp6"
 #define WIFI_TIMEOUT_MS 10000 // 10 seconds
 
 // InfluxDB v2 write API, exposed to the internet through the nginx reverse
@@ -40,9 +40,9 @@
 // label), and SITE_ID/SITE_NAME come from the company_sites row it belongs
 // to. Look these up once via the backend/pgAdmin after registering the
 // sensor and bake them into the firmware per physical device.
-#define SENSOR_UUID "00000000-0000-0000-0000-000000000000"
-#define SITE_ID "1"
-#define SITE_NAME "VPBank Tower Hanoi"
+#define SENSOR_UUID "5932b673-a81a-4221-863b-340a9596d0e1"
+#define SITE_ID "72"
+#define SITE_NAME "VinUniversity - Gia Lam"
 
 // NTP so line-protocol points can carry a real nanosecond timestamp
 #define NTP_SERVER "pool.ntp.org"
