@@ -2,7 +2,9 @@
 import axios from "axios";
 
 const publicAxiosInstance = axios.create({
-  baseURL: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081"}/api`,
+  // Same-origin relative base ("/api") so the browser calls whichever host
+  // served the page, through nginx — no hardcoded host, no cross-origin/CORS.
+  baseURL: `${process.env.NEXT_PUBLIC_API_URL || ""}/api`,
   timeout: 30000, 
   headers: {
     "Content-Type": "application/json",
