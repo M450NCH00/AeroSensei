@@ -336,25 +336,19 @@ def fetch_neighbour_pm_from_influx(
             results[name] = {"pm2_5": pm25, "wind_speed": wspd, "distance_km": dist}
             continue
 
-        # Step 3: Query InfluxDB for pm2_5 using sensor UUIDs
-        uuid_list   = [str(row[0]) for row in rows]
-        uuid_filter = " or ".join(f'r.sensor_id == "{uid}"' for uid in uuid_list)
-
-        flux = f'''
-        from(bucket: "{bucket}")
-          |> range(start: -60m)
-          |> filter(fn: (r) => r._measurement == "{measurement}")
-          |> filter(fn: (r) => {uuid_filter})
-          |> filter(fn: (r) => r._field == "pm2_5")
-          |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")
-          |> sort(columns:["_time"], desc: true)
-          |> limit(n: 1)
-        '''
-        tables = influx_client.query_api().query(flux, org=org)
-        for table in tables:
-            for record in table.records:
-                #pm25 = record.values.get("pm2_5", np.nan)
-                pm25 = _fetch_open_meteo_pm2_5(lat, lon)
+        # PRIMARY PERF FIX (the ~10-minute slowdown):
+        # This block used to build a giant `sensor_id == "u1" or ... or "uN"` Flux
+        # query over every sensor in the ±0.15° box (which now catches most of the
+        # city's few-hundred sensors), then — for EACH returned record — call
+        # Open-Meteo again with THIS grid point's own (lat, lon). That's hundreds of
+        # identical network calls per grid point (4 grid points × ~280 sensors ≈
+        # ~1,100 calls), which is what made this take ~10 minutes. `pm25` was already
+        # fetched once above from Open-Meteo for this grid point, so the per-record
+        # recompute was pure redundant work — it is removed here.
+        #
+        # (Deferred "better" fix, not done in this change: read the neighbours' real
+        #  measured PM from InfluxDB with ONE aggregated query — record.values.get(
+        #  "pm2_5") + `|> group() |> last()` — and shrink the ±0.15° box.)
 
         results[name] = {"pm2_5": pm25, "wind_speed": wspd, "distance_km": dist}
 

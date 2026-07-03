@@ -51,26 +51,8 @@ def predict(site_id: str):
     if sensor_data is None:
         raise HTTPException(404, f"no recent data for site {site_id}")
 
-    # try:
-
-    #     nearest_points = find_nearest_grid_points(
-    #         sensor_data["latitude"], sensor_data["longitude"], n=N_NEIGHBORS + 1
-    #     )
-    #     print(f"[predict] nearest_points: {nearest_points}", flush=True)
-
-    #     neighbour_pm = fetch_neighbour_pm_from_influx(
-    #         nearest_points[1:], INFLUX_BUCKET, INFLUX_ORG, client, conn, sensor_data
-    #     )
-    #     print(f"[predict] neighbour_pm: {neighbour_pm}", flush=True)
-    #     print(f"[predict] neighbour_pm: {neighbour_pm}", flush=True)
-
-    #     weather_by_point = fetch_weather_for_points([nearest_points[0]])
-
-    #     raw_df = assemble_raw_df(sensor_data, nearest_points, neighbour_pm, weather_by_point)
-    #     feature_df = build_forecast_table(raw_df)
-
-    # except:
-    print("Using fallback")
+    # Hardcoded fallback feature row — used only if the real forecast pipeline
+    # (below) raises.
     fallback = {'aq_pm10': 21.86333333333333,
         'aq_pm2_5': 14.871111111111112,
         'day_cos': -0.9009688679024191,
@@ -141,7 +123,29 @@ def predict(site_id: str):
         'year_cos': -0.9997202729664083,
         'year_sin': -0.023651127245231586}
     
-    feature_df = pd.DataFrame([fallback])
+    # Real forecast pipeline: nearest grid points -> neighbour PM (InfluxDB) ->
+    # weather (Open-Meteo) -> assembled feature row. Falls back to the hardcoded
+    # row above if anything in the pipeline fails.
+    try:
+        nearest_points = find_nearest_grid_points(
+            sensor_data["latitude"], sensor_data["longitude"], n=N_NEIGHBORS + 1
+        )
+        print(f"[predict] nearest_points: {nearest_points}", flush=True)
+
+        neighbour_pm = fetch_neighbour_pm_from_influx(
+            nearest_points[1:], INFLUX_BUCKET, INFLUX_ORG, client, conn, sensor_data
+        )
+        print(f"[predict] neighbour_pm: {neighbour_pm}", flush=True)
+
+        weather_by_point = fetch_weather_for_points([nearest_points[0]])
+
+        raw_df = assemble_raw_df(sensor_data, nearest_points, neighbour_pm, weather_by_point)
+        feature_df = build_forecast_table(raw_df)
+        print("[predict] using real forecast pipeline", flush=True)
+    except Exception as e:
+        print(f"[predict] real forecast failed, using fallback: {e}", flush=True)
+        feature_df = pd.DataFrame([fallback])
+
     X = prepare_features(feature_df)
 
     models = [ForecastModel(25, 1), ForecastModel(25, 3), ForecastModel(10, 1), ForecastModel(10, 3)]
