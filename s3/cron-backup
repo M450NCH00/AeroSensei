@@ -1,4 +1,3 @@
-# Run backup every Sunday at 01:00
-# 0 1 * * 0 . /etc/environment; /usr/local/bin/python /app/backup_to_s3.py >> /var/log/cron.log 2>&1
-# Run backup every minute to test
-* * * * * . /etc/environment; /usr/local/bin/python /app/backup_to_s3.py >> /var/log/cron.log 2>&1
+# Run the InfluxDB -> MinIO backup DAILY at 01:00.
+# The window ends at the trigger moment, so it captures the previous 24h up to now.
+0 1 * * * . /etc/environment; /usr/local/bin/python /app/backup_to_s3.py >> /var/log/cron.log 2>&1

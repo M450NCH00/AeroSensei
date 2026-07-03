@@ -836,6 +836,45 @@ public class SensorService {
     }
 
     // ==========================================
+    // CITY-WIDE SENSOR STATE COUNTS (system job, no auth)
+    // ==========================================
+    /**
+     * Classifies every registered sensor by its current 15-minute state and
+     * returns {totalWithData, warnings, breaches}. Used by the city-wide ministry
+     * escalation job. Sensors with no recent readings are excluded from the total
+     * so the fractions reflect only live sensors. Reuses {@link #getRealTimeReadings}
+     * (Redis-cached), so the per-sensor state definition stays consistent with the
+     * dashboards.
+     */
+    public int[] getSystemSensorStateCounts() {
+        List<Object[]> results = registryRepository.findAllSensorsDetails();
+        int total = 0, warnings = 0, breaches = 0;
+
+        for (Object[] row : results) {
+            String sensorId = (String) row[3];
+            SensorReadingsDTO r;
+            try {
+                r = getRealTimeReadings(sensorId);
+            } catch (Exception e) {
+                logs.warn("State count skipped sensor {}: {}", sensorId, e.getMessage());
+                continue;
+            }
+            // No data in the last 15 minutes -> sensor is offline, don't count it.
+            if (r.getAvgPm25() == null && r.getAvgPm10() == null) continue;
+
+            total++;
+            if (r.getState() == SiteState.BREACHED) {
+                breaches++;
+            } else if (r.getState() == SiteState.WARNING) {
+                warnings++;
+            }
+        }
+
+        logs.info("City-wide sensor states -> total(live): {}, warnings: {}, breaches: {}", total, warnings, breaches);
+        return new int[]{total, warnings, breaches};
+    }
+
+    // ==========================================
     // GET TOP N CRITICAL SENSORS
     // ==========================================
     public List<SiteSensor15MinDTO> getCriticalReadings(int topN, Authentication authentication) {

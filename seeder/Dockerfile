@@ -11,8 +11,9 @@ ENV PYTHONUNBUFFERED=1
 ENV TZ=Asia/Singapore
 
 # Install Python packages
-# (requests for the API calls, psycopg2-binary for PostgreSQL without needing GCC)
-RUN pip install --no-cache-dir psycopg2-binary requests
+# (psycopg2-binary for PostgreSQL without needing GCC, influxdb-client to write
+# sensor readings directly into InfluxDB)
+RUN pip install --no-cache-dir psycopg2-binary influxdb-client redis
 
 # Copy your script into the container
 COPY sensor.py .

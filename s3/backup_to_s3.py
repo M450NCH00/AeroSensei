@@ -17,19 +17,23 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")  # Default MinIO 
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")  # Default MinIO pass
 BUCKET_NAME = os.getenv("BUCKET_NAME", "influx-backups")    # Must exist in MinIO
 
+# Lookback window in days (default 1 = a daily backup). The window ENDS at the
+# moment the backup is triggered, so today's data up to now is included.
+LOOKBACK_DAYS = int(os.getenv("BACKUP_LOOKBACK_DAYS", "1"))
+
+
 def main():
-    # 1. Calculate the 1-week time window
+    # 1. Time window: from LOOKBACK_DAYS ago up to right now (the trigger moment).
     now = datetime.utcnow()
-    
-    # End time: Midnight today (excluding today's partial data)
-    end_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    # Start time: Midnight exactly 7 days ago
-    start_date = end_date - timedelta(days=7)
-    
+    end_date = now
+    start_date = end_date - timedelta(days=LOOKBACK_DAYS)
+
     start_time_iso = start_date.isoformat() + "Z"
-    end_time_iso = end_date.isoformat() + "Z"
-    
-    print(f"Extracting 1 week of data from {start_time_iso} to {end_time_iso}...")
+    # Nudge the stop 1 minute past now so the most recent points are included
+    # (Flux range stop is exclusive).
+    end_time_iso = (end_date + timedelta(minutes=1)).isoformat() + "Z"
+
+    print(f"Extracting {LOOKBACK_DAYS} day(s) of data from {start_time_iso} to {now.isoformat()}Z...")
 
     # 2. Initialize InfluxDB Client
     client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
@@ -47,17 +51,20 @@ def main():
     csv_result = query_api.query_raw(flux_query)
     raw_data = csv_result.read()
 
-    if not raw_data or len(raw_data) < 50:
-        print("No data found for this week. Skipping backup.")
+    text = raw_data.decode("utf-8", "replace") if isinstance(raw_data, bytes) else raw_data
+    data_rows = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("#") and not ln.startswith(",result")]
+    if len(data_rows) <= 1:  # only the header row (or nothing)
+        print("No data found in the window. Skipping backup.")
         return
 
-    # 4. Create a descriptive date-range filename and compress it
+    # 4. Create a descriptive, unique filename (includes time so multiple runs
+    # per day don't overwrite each other) and compress it.
     print("Compressing data...")
-    start_str = start_date.strftime("%Y-%m-%d")
-    end_str = end_date.strftime("%Y-%m-%d")
+    start_str = start_date.strftime("%Y-%m-%d_%H%M")
+    end_str = end_date.strftime("%Y-%m-%d_%H%M")
     filename = f"influx_backup_{start_str}_to_{end_str}.csv.gz"
     
-    compressed_data = gzip.compress(raw_data)
+    compressed_data = gzip.compress(text.encode("utf-8"))
 
     # 5. Connect to local MinIO using the S3 protocol client
     print(f"Uploading {filename} to MinIO bucket '{BUCKET_NAME}'...")

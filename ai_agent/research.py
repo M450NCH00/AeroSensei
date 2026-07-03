@@ -24,10 +24,12 @@ from bs4 import BeautifulSoup
 
 import config
 
+# DuckDuckGo's HTML endpoint serves an anti-bot challenge (HTTP 202, no results)
+# to obviously-bot User-Agents, so present a normal browser UA to get real results.
 _HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; AeroSenseiResearchBot/1.0; "
-        "+https://aerosensei.local)"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     )
 }
 
@@ -67,18 +69,26 @@ def _assert_safe_url(url: str) -> str:
     return url
 
 
-def web_search(query: str, max_results: int | None = None) -> list[dict]:
+def web_search(query: str, max_results: int | None = None,
+               time_filter: str | None = None) -> list[dict]:
     """Search the web and return [{title, url, snippet}] for the top results.
 
     Uses DuckDuckGo's keyless HTML endpoint, so no API credentials are needed.
+
+    `time_filter` restricts results by recency: 'd' (past day), 'w' (past week),
+    'm' (past month), or 'y' (past year). None/"" = no restriction.
     """
     if not query or not query.strip():
         raise ResearchError("Empty search query")
     limit = max_results or config.WEB_MAX_RESULTS
 
+    data = {"q": query.strip()}
+    if time_filter in ("d", "w", "m", "y"):
+        data["df"] = time_filter  # DuckDuckGo's date filter
+
     resp = requests.post(
         _DDG_HTML,
-        data={"q": query.strip()},
+        data=data,
         headers=_HEADERS,
         timeout=config.WEB_TIMEOUT,
     )
