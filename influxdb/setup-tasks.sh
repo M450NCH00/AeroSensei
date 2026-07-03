@@ -13,7 +13,7 @@ TASK_ID=$(influx task list --org "$INFLUX_ORG" --host "$INFLUX_URL" --token "$IN
   | grep "pm-realtime-alert" | awk '{print $1}')
 if [ -n "$TASK_ID" ]; then
   influx task update --id "$TASK_ID" -f /tasks/pm_alert_task.flux \
-    --org "$INFLUX_ORG" --host "$INFLUX_URL" --token "$INFLUX_TOKEN"
+    --host "$INFLUX_URL" --token "$INFLUX_TOKEN"
   echo "Task pm-realtime-alert updated (id $TASK_ID)."
 else
   influx task create -f /tasks/pm_alert_task.flux --org "$INFLUX_ORG" --host "$INFLUX_URL" --token "$INFLUX_TOKEN"
