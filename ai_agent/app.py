@@ -201,7 +201,11 @@ def alert():
 
     # 2b. If a city-wide escalation is active, skip the per-site Telegram push to
     # avoid flooding Telegram (429). The city-wide summary already went out.
-    if time.time() < _city_wide_suppress_until:
+    # EXCEPTION: sites in ALERT_SUPPRESS_EXEMPT_SITES (e.g. the physical
+    # VinUniversity sensor) always alert, even during a city-wide window.
+    site_name_lc = str(data.get("site_name") or "").lower()
+    is_exempt = any(s in site_name_lc for s in config.ALERT_SUPPRESS_EXEMPT_SITES)
+    if not is_exempt and time.time() < _city_wide_suppress_until:
         return jsonify({"status": "suppressed", "reason": "city-wide escalation active"}), 200
 
     # 3. Compose the advisory message.

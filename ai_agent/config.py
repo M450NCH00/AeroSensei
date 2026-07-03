@@ -121,6 +121,15 @@ TELEGRAM_NOTIFY_TIMEOUT = float(os.getenv("TELEGRAM_NOTIFY_TIMEOUT", "15"))
 # this many minutes so the flood of individual site alerts doesn't 429 Telegram.
 CITY_WIDE_SUPPRESS_MINUTES = float(os.getenv("CITY_WIDE_SUPPRESS_MINUTES", "30"))
 
+# Sites exempt from the city-wide suppression above — their per-site Telegram
+# alerts ALWAYS fire (e.g. the physical VinUniversity sensor we actively monitor).
+# Comma-separated, case-insensitive substring match against the alert's site_name.
+ALERT_SUPPRESS_EXEMPT_SITES = [
+    s.strip().lower()
+    for s in os.getenv("ALERT_SUPPRESS_EXEMPT_SITES", "VinUniversity").split(",")
+    if s.strip()
+]
+
 # --- PDF report generation ---
 # Generated PDFs are stored in MinIO (S3) and streamed back via GET /reports/<file>.
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
