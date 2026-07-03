@@ -24,7 +24,9 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "${app.cors.allowed-origin:http://localhost:3000}", allowCredentials = "true")
+// CORS is handled by the nginx reverse proxy (see nginx.conf). A controller-level
+// @CrossOrigin here re-introduced a localhost-only allowlist that 403'd real
+// deployment origins (e.g. the EC2 public DNS) with "Invalid CORS request".
 public class AuthController {
 
     @Autowired
