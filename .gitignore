@@ -57,3 +57,6 @@ desktop.ini
 
 # ── Claude Code (keep shared config, ignore local overrides) ──────────
 .claude/settings.local.json
+
+# TLS certificates (generated per-host, never commit private keys)
+certs/
