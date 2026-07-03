@@ -305,11 +305,20 @@ public class SensorService {
     // =====================================================
     // GET 15-MINUTE READINGS AGGREGATED BY SITE FOR PUBLIC
     // =====================================================
-    public List<SiteSensor15MinDTO> getSiteSensors15MinReadingsForPublic() {
+    public List<SiteSensor15MinDTO> getSiteSensors15MinReadingsForPublic(BigDecimal lat, BigDecimal lon) {
+        logs.info("Searching for nearest sensor site to Lat: {}, Lon: {}", lat, lon);
+
+        // 1. Ask PostgreSQL for the absolute closest site ID
+        Integer nearestSiteId = registryRepository.findNearestSiteId(lat.doubleValue(), lon.doubleValue());
+
+        if (nearestSiteId == null) {
+            throw new RuntimeException("No active sensor sites found to generate a forecast.");
+        }
+
         List<Object[]> results;
 
-        logs.info("Fetching 15m readings for Site: All for General Public");
-        results = registryRepository.findAllSensorsDetails();
+        logs.info("Fetching 15m readings for Site: {} for General Public", nearestSiteId);
+        results = registryRepository.findAllSensorsBySiteId(nearestSiteId);
 
         // Group the sensors by Site ID (row[1])
         Map<Integer, List<Object[]>> groupedBySite = results.stream()

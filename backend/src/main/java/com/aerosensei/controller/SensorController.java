@@ -79,14 +79,6 @@ public class SensorController {
         return ResponseEntity.ok(data);
     }
 
-    // URL: GET http://localhost:8081/api/sensors/public/all-readings-15m
-    @GetMapping("/public/all-readings-15m")
-    public ResponseEntity<List<SiteSensor15MinDTO>> getSiteSensors15MinAverageForPublic() {
-
-        List<SiteSensor15MinDTO> data = sensorService.getSiteSensors15MinReadingsForPublic();
-        return ResponseEntity.ok(data);
-    }
-
     // URL: GET http://localhost:8081/api/sensors/site/1/readings-15m
     @GetMapping("/site/{siteId}/readings-15m")
     public ResponseEntity<List<SiteSensor15MinDTO>> getSiteSensors15MinAverage(
@@ -128,8 +120,18 @@ public class SensorController {
         }
     }
 
+    // URL: GET http://localhost:8081/api/sensors/public/all-readings-15m
+    @GetMapping("/public/all-readings-15m")
+    public ResponseEntity<List<SiteSensor15MinDTO>> getSiteSensors15MinAverageForPublic(
+            @RequestParam BigDecimal lat,
+            @RequestParam BigDecimal lon) {
+
+        List<SiteSensor15MinDTO> data = sensorService.getSiteSensors15MinReadingsForPublic(lat, lon);
+        return ResponseEntity.ok(data);
+    }
+
     // URL: GET http://localhost:8081/api/sensors/public/forecast?lat=1.4500&lon=103.7500
-    @GetMapping("/forecast")
+    @GetMapping("/public/forecast")
     public ResponseEntity<?> getForecast(
             @RequestParam BigDecimal lat,
             @RequestParam BigDecimal lon) {
