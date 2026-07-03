@@ -14,31 +14,59 @@ if (typeof window !== "undefined") {
 
 const LanyardScene = dynamic(() => import("./components/LanyardScene"), { ssr: false });
 
+// Module-scoped cache of the decoded background frames. It persists across
+// client-side navigations (leaving and returning to this page), so the sequence
+// is fetched + decoded once per session instead of re-loading (~16s) every time.
+let cachedFrames: HTMLImageElement[] | null = null;
+
 export default function HomePage() {
   const [showBadge, setShowBadge] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRefs = useRef<(HTMLDivElement | null)[]>([]);
   
-  const frameCount = 300; 
-  const [images, setImages] = useState<HTMLImageElement[]>([]);
+  const frameCount = 100; // matches the files actually present in /public/sequence
+  // Seed from the cache so a return visit renders instantly (no re-fetch).
+  const [images, setImages] = useState<HTMLImageElement[]>(cachedFrames ?? []);
 
   useEffect(() => {
-    const loadedImages: HTMLImageElement[] = [];
+    // Already loaded earlier this session — reuse the decoded frames immediately.
+    if (cachedFrames) {
+      setImages(cachedFrames);
+      return;
+    }
+
+    const loadedImages: HTMLImageElement[] = new Array(frameCount);
     let loadedCount = 0;
+    let cancelled = false;
 
     for (let i = 1; i <= frameCount; i++) {
       const img = new Image();
+      // Load in the background at low priority + async decode so the sequence
+      // never contends with route navigation — the nav links stay clickable
+      // while the frames stream in.
+      img.decoding = "async";
+      (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = "low";
       img.src = `/sequence/ezgif-frame-${i.toString().padStart(3, "0")}.jpg`;
-      
+
       img.onload = () => {
         loadedCount++;
-        if (loadedCount === frameCount) {
-          setImages(loadedImages);
+        // Publish the first frame as soon as it arrives so the background paints
+        // right away instead of staying black until all 100 have loaded.
+        if (loadedCount === 1 && !cancelled) {
+          setImages((prev) => (prev.length ? prev : loadedImages));
+        }
+        if (loadedCount === frameCount && !cancelled) {
+          cachedFrames = loadedImages;
+          setImages([...loadedImages]); // final: all frames ready for scroll scrub
         }
       };
-      loadedImages.push(img);
+      loadedImages[i - 1] = img;
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -53,7 +81,9 @@ export default function HomePage() {
 
     const renderFrame = (index: number) => {
       const img = images[index];
-      if (!img) return;
+      // Skip frames that haven't decoded yet (progressive load / scrub) — the
+      // previously drawn frame stays until this one is ready.
+      if (!img || !img.complete || img.naturalWidth === 0) return;
 
       const hRatio = canvas.width / img.width;
       const vRatio = canvas.height / img.height;
