@@ -2,8 +2,10 @@
 import axios from "axios";
 
 const mlAxiosInstance = axios.create({
-  // Point to the ML environment variable, with a fallback just in case
-  baseURL: process.env.NEXT_PUBLIC_ML_API_URL || "http://localhost:8000",
+  // Default to the same-origin relative "/ml" path (proxied by nginx to the
+  // forecast-model container). Override with NEXT_PUBLIC_ML_API_URL to point
+  // at a different origin.
+  baseURL: process.env.NEXT_PUBLIC_ML_API_URL || "/ml",
   
   // The /predict pipeline runs several sequential InfluxDB + Postgres queries
   // and an Open-Meteo weather call before the (fast) inference, so a cold

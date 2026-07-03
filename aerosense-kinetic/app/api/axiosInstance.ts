@@ -2,8 +2,11 @@
 import axios from "axios";
 
 const axiosInstance = axios.create({
-  // FIXED: Changed from REACT_APP_ to NEXT_PUBLIC_ so Next.js can read it
-  baseURL: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081"}/api`,
+  // Default to a same-origin relative base ("/api") so the browser calls
+  // whichever host served the page (localhost, EC2 DNS, IP, or a future domain)
+  // via the nginx reverse proxy — no hardcoded host, no cross-origin/CORS.
+  // Override with NEXT_PUBLIC_API_URL only to point at a different origin.
+  baseURL: `${process.env.NEXT_PUBLIC_API_URL || ""}/api`,
   withCredentials: true, // Crucial for passing HttpOnly cookies automatically
   headers: {
     "Content-Type": "application/json",

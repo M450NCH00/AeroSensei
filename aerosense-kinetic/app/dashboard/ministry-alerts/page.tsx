@@ -40,7 +40,7 @@ interface Broadcast {
   drafts: MinistryDraft[];
 }
 
-const AI_AGENT_URL = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+const AI_AGENT_URL = process.env.NEXT_PUBLIC_AI_AGENT_URL || "/agent";
 
 // Minimal, safe Markdown rendering for the LLM's causes text: **bold**, bullet
 // lists (- / *), and paragraphs. No HTML injection.

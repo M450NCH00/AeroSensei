@@ -421,7 +421,7 @@ export default function CarbonCreditPage() {
     setReviewSectorId(company.sectorId != null ? String(company.sectorId) : "");
     setReviewLoading(true);
     try {
-      const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "http://localhost:5001";
+      const aiAgentUrl = process.env.NEXT_PUBLIC_AI_AGENT_URL || "/agent";
       const res = await fetch(`${aiAgentUrl}/classify/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

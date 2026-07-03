@@ -375,9 +375,14 @@ services:
       args:
         # NEXT_PUBLIC_* vars get baked into the client bundle at build time —
         # must be passed as build args, not just runtime `environment:` below.
-        NEXT_PUBLIC_API_URL: http://localhost
-        NEXT_PUBLIC_AI_AGENT_URL: http://localhost/agent
-        NEXT_PUBLIC_ML_API_URL: http://localhost/ml
+        # Left EMPTY on purpose: the frontend falls back to same-origin relative
+        # paths (/api, /ml, /agent) so the browser calls whatever host served the
+        # page (localhost in dev, the EC2 DNS/IP in prod) through nginx. Do NOT
+        # hardcode a host here — that ships a bundle that calls the user's own
+        # machine. Set a full origin only to target a *different* backend host.
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_AI_AGENT_URL: ""
+        NEXT_PUBLIC_ML_API_URL: ""
     image: aerosense-frontend:latest
     container_name: aerosense-frontend
     restart: unless-stopped
@@ -389,9 +394,11 @@ services:
       ai-agent:
         condition: service_healthy
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost
-      - NEXT_PUBLIC_AI_AGENT_URL=http://localhost/agent
-      - NEXT_PUBLIC_ML_API_URL=http://localhost/ml
+      # Runtime values are inert for NEXT_PUBLIC_* (they're baked at build time,
+      # see args above) — kept empty to match and avoid confusion.
+      - NEXT_PUBLIC_API_URL=
+      - NEXT_PUBLIC_AI_AGENT_URL=
+      - NEXT_PUBLIC_ML_API_URL=
     healthcheck:
       # Use 127.0.0.1 (IPv4), not localhost: inside the container localhost
       # resolves to IPv6 ::1, but next-server listens on IPv4 0.0.0.0 only —
