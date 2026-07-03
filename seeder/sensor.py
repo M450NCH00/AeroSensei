@@ -270,15 +270,12 @@ def gen_values(mode, sensor, critical_site_id, when=None):
         pm25 = round(random.uniform(32, 39), 2)     # inside 30-40 warning band
         pm10 = round(random.uniform(55, 72), 2)     # inside 50-75 warning band
         nc05 = round(random.uniform(1200, 2200), 2)
-    elif is_hcm_sensor(sensor):
-        return hcm_values(sensor, when)
-    elif site_id == critical_site_id:
-        # Default demo: one always-critical site so the alert pipeline stays live.
-        pm25 = round(random.uniform(60, 80), 2)
-        pm10 = round(random.uniform(125, 150), 2)
-        nc05 = round(random.uniform(2000, 4000), 2)
     else:
-        # NORMAL: safe levels.
+        # NORMAL (default for EVERY sensor): safe/healthy levels. PM2.5 stays
+        # under ~27 and PM10 under ~40, comfortably below the backend's WARNING
+        # thresholds (PM2.5>=30 / PM10>=50). The old always-critical demo site and
+        # the HCMC OpenAQ path were removed here so all sensors read healthy unless
+        # a demo mode explicitly forces 'warning'/'breached'.
         pm1 = round(random.uniform(2, 12), 2)
         pm25 = round(pm1 + random.uniform(0, 15), 2)
         pm4 = round(pm25 + random.uniform(0, 5), 2)
@@ -325,6 +322,10 @@ while True:
             "SELECT sr.id, sr.site_id, cs.site_name, sr.latitude, sr.longitude "
             "FROM sensor_registry sr "
             "JOIN company_sites cs ON sr.site_id = cs.id "
+            # Only simulate the mock sensor families (hn_/hcm_). Physical devices
+            # such as the vinuni_ ESP32 write their own real readings — the seeder
+            # must not clobber them with synthetic values.
+            "WHERE sr.sensor_id LIKE 'hn\\_%' OR sr.sensor_id LIKE 'hcm\\_%' "
             "ORDER BY sr.sensor_id;"
         )
         rows = cur.fetchall()

@@ -97,5 +97,7 @@ VALUES
     ((SELECT id FROM companies WHERE company_name = 'Government Environmental Agency'), 'Hanoi Ambient Station - Tay Ho 6', 0, 0, 21.348370, 105.941472),
     ((SELECT id FROM companies WHERE company_name = 'Government Environmental Agency'), 'Hanoi Ambient Station - Long Bien 8', 0, 0, 21.338116, 105.995940),
     -- Single Ho Chi Minh City OpenAQ-backed monitoring site.
-    ((SELECT id FROM companies WHERE company_name = 'Government Environmental Agency'), 'Ho Chi Minh OpenAQ Station - District 1', 0, 0, 10.776900, 106.700900)
+    ((SELECT id FROM companies WHERE company_name = 'Government Environmental Agency'), 'Ho Chi Minh OpenAQ Station - District 1', 0, 0, 10.776900, 106.700900),
+    -- VinUniversity campus (Vinhomes Ocean Park, Gia Lam, Hanoi).
+    ((SELECT id FROM companies WHERE company_name = 'Government Environmental Agency'), 'VinUniversity - Gia Lam', 0, 0, 20.976500, 105.990800)
 ON CONFLICT (company_id, site_name) DO NOTHING;
