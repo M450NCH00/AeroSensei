@@ -67,15 +67,51 @@ COMPANY_ADVICE = {
 }
 
 
-def compose_company_advice(level: str) -> str:
-    """Markdown bullet list of what the owning company should do at this level."""
+# Government-owned sites are ambient monitors in shared/public areas (roadsides,
+# residential zones) — there is no single "company" to reduce emissions, so the
+# advice is area-based mitigation (dust suppression, greening, traffic/burning
+# controls) rather than plant-level operational cuts.
+GOV_ADVICE = {
+    "WARNING": [
+        "Increase street sweeping and water-spraying of roads and roadsides in the area to capture and settle airborne dust.",
+        "Intensify roadside greening — plant and maintain trees, hedges, and vegetation barriers that trap particulate matter.",
+        "Step up enforcement against open burning of waste and agricultural residue near the affected area.",
+        "Cover exposed soil and unpaved shoulders, and coordinate with transport authorities on traffic-generated dust.",
+        "Issue a localized public advisory for the area and increase monitoring frequency.",
+    ],
+    "BREACHED": [
+        "Deploy water trucks for intensive road washing and dust suppression across the affected corridor.",
+        "Introduce temporary traffic measures (reroute or restrict heavy diesel vehicles) to cut roadside emissions.",
+        "Halt nearby open burning and dust-generating construction/earthworks, and dispatch inspectors to enforce it.",
+        "Accelerate tree-planting and install vegetation or barrier screens along the roadside to capture particulates.",
+        "Escalate to MONRE / city authorities, issue a public health advisory, and deploy mobile air-quality monitoring.",
+    ],
+}
+
+
+def _is_gov_company(company_name: str) -> bool:
+    """Government-owned ambient sites (e.g. 'Government Environmental Agency')."""
+    return "government" in str(company_name or "").lower()
+
+
+def compose_site_advice(level: str, company_name: str) -> str:
+    """Markdown bullet list of what to do at this level for the site's owner —
+    company operational advice, or area-based advice for government ambient sites."""
     level = level.upper()
-    actions = COMPANY_ADVICE.get(level, [])
-    headline = (
-        "Your site has **BREACHED** the air-quality limit. Per MOH guidance, take immediate action:"
-        if level == "BREACHED"
-        else "Your site is at a **WARNING** level. Act now to prevent it from getting worse:"
-    )
+    gov = _is_gov_company(company_name)
+    actions = (GOV_ADVICE if gov else COMPANY_ADVICE).get(level, [])
+    if gov:
+        headline = (
+            "This ambient area has **BREACHED** the air-quality limit. Recommended area mitigation:"
+            if level == "BREACHED"
+            else "This ambient area is at a **WARNING** level. Recommended area mitigation to prevent it worsening:"
+        )
+    else:
+        headline = (
+            "Your site has **BREACHED** the air-quality limit. Per MOH guidance, take immediate action:"
+            if level == "BREACHED"
+            else "Your site is at a **WARNING** level. Act now to prevent it from getting worse:"
+        )
     bullets = "\n".join(f"- {a}" for a in actions)
     return f"{headline}\n\n{bullets}"
 
@@ -84,15 +120,17 @@ def upsert_site_alert(site_id, site_name: str, company_name: str, level: str,
                       pm2_5=None, pm10=None) -> dict:
     """Store/refresh the current alert for one site (WARNING or BREACHED)."""
     level = str(level or "").upper()
+    category = "government" if _is_gov_company(company_name) else "company"
     alert = {
         "id": str(site_id),
         "site_id": site_id,
         "site_name": site_name,
         "company_name": company_name,
+        "category": category,
         "level": level,
         "pm2_5": pm2_5,
         "pm10": pm10,
-        "advice": compose_company_advice(level),
+        "advice": compose_site_advice(level, company_name),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     with _SITE_LOCK:

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Bell, Mail, AlertTriangle, ShieldAlert, RefreshCw, Loader2, Building2, Clock, RotateCcw,
-  Search, ExternalLink, Factory, Wind,
+  Search, ExternalLink, Factory, Wind, Landmark, ChevronDown,
 } from "lucide-react";
 import axiosInstance from "@/app/api/axiosInstance";
 import { useAuth } from "@/app/context/AuthContext";
@@ -45,6 +45,7 @@ interface SiteAlert {
   site_id: number | string;
   site_name: string;
   company_name: string;
+  category?: "company" | "government";
   level: "WARNING" | "BREACHED";
   pm2_5: number | null;
   pm10: number | null;
@@ -100,6 +101,77 @@ const fmtTime = (v: string) =>
 const fmtNum = (v: number | null | undefined) =>
   typeof v === "number" ? v.toFixed(1) : "—";
 
+// A titled section whose body can be collapsed — keeps a long list from pushing
+// the sections below it out of reach. The count stays visible when collapsed.
+function CollapsibleSection({
+  icon, title, count, defaultOpen = true, children,
+}: {
+  icon: ReactNode;
+  title: string;
+  count: number;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="mb-8">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 mb-3 text-left group"
+        aria-expanded={open}
+      >
+        <ChevronDown
+          className={`w-4 h-4 text-gray-500 transition-transform ${open ? "" : "-rotate-90"}`}
+        />
+        {icon}
+        <h2 className="text-lg font-semibold text-gray-900 group-hover:text-blue-700">{title}</h2>
+        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{count}</span>
+        <span className="ml-auto text-xs text-gray-400">{open ? "Hide" : "Show"}</span>
+      </button>
+      {open && children}
+    </section>
+  );
+}
+
+function SiteAlertCard({ a }: { a: SiteAlert }) {
+  const breached = a.level === "BREACHED";
+  const gov = a.category === "government";
+  return (
+    <div className="border rounded-xl overflow-hidden shadow-sm">
+      <div className={`p-4 flex flex-wrap items-center gap-3 ${breached ? "bg-red-50" : "bg-amber-50"}`}>
+        <span
+          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${
+            breached ? "bg-red-600 text-white" : "bg-amber-500 text-white"
+          }`}
+        >
+          {breached ? <ShieldAlert className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+          {a.level}
+        </span>
+        <span className="font-semibold text-gray-900">{a.site_name}</span>
+        {a.company_name && (
+          <span className="inline-flex items-center gap-1 text-sm text-gray-600">
+            <Building2 className="w-4 h-4" /> {a.company_name}
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1 text-sm text-gray-700">
+          <Wind className="w-4 h-4" /> PM2.5 {fmtNum(a.pm2_5)} · PM10 {fmtNum(a.pm10)} µg/m³
+        </span>
+        <span className="ml-auto flex items-center gap-1 text-xs text-gray-500">
+          <Clock className="w-3.5 h-3.5" /> {fmtTime(a.timestamp)}
+        </span>
+      </div>
+      <div className="p-4 text-sm text-gray-700">
+        <Markdown text={a.advice} />
+        <p className="mt-3 text-[11px] uppercase tracking-wide text-gray-400">
+          {gov
+            ? "Area mitigation guidance for government ambient monitoring sites."
+            : "Guidance based on Ministry of Health / WHO air-quality recommendations."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function AlertsPage() {
   const { hasRole } = useAuth();
   const isGov = hasRole("GOVERNMENT") || hasRole("ADMIN");
@@ -143,7 +215,6 @@ export default function AlertsPage() {
           ? "Reset — sensors back to normal levels; alerts cleared."
           : `All sensors now emitting ${mode.toUpperCase()} values. Company and department alerts drafted below; the map updates within ~1 minute.`
       );
-      // A forced WARNING/BREACHED raises alerts immediately — refresh without waiting for the poll.
       load();
     } catch {
       setDemoMsg("Failed to set emission mode (are you signed in as a government user?).");
@@ -165,6 +236,9 @@ export default function AlertsPage() {
     return () => clearInterval(t);
   }, [load]);
 
+  const companyAlerts = siteAlerts.filter((a) => a.category !== "government");
+  const govAlerts = siteAlerts.filter((a) => a.category === "government");
+
   return (
     <AuthGuard>
       <div className="p-6 max-w-5xl mx-auto">
@@ -175,8 +249,8 @@ export default function AlertsPage() {
               Alerts
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Per-site advisories for companies when a site turns unhealthy, and city-wide directives
-              to the ministries when air quality degrades across Hanoi.
+              Per-site advisories for companies and government ambient sites when air quality turns
+              unhealthy, and city-wide directives to the ministries when it degrades across Hanoi.
             </p>
           </div>
           <button
@@ -233,79 +307,50 @@ export default function AlertsPage() {
           <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>
         )}
 
-        {/* ===================== SECTION 1: Company Site Alerts ===================== */}
-        <section className="mb-10">
-          <div className="flex items-center gap-2 mb-3">
-            <Factory className="w-5 h-5 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">Company Site Alerts</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-              {siteAlerts.length}
-            </span>
-          </div>
-
-          {!error && siteAlerts.length === 0 && !loading && (
+        {/* ===================== Company Site Alerts ===================== */}
+        <CollapsibleSection
+          icon={<Factory className="w-5 h-5 text-gray-700" />}
+          title="Company Site Alerts"
+          count={companyAlerts.length}
+        >
+          {!error && companyAlerts.length === 0 && !loading && (
             <div className="p-6 text-center text-gray-500 border border-dashed rounded-xl text-sm">
-              No site is currently at a warning or breached level. When a company&apos;s site turns
-              unhealthy, its advisory will appear here.
+              No company site is currently at a warning or breached level.
             </div>
           )}
-
           <div className="space-y-4">
-            {siteAlerts.map((a) => {
-              const breached = a.level === "BREACHED";
-              return (
-                <div key={a.id} className="border rounded-xl overflow-hidden shadow-sm">
-                  <div className={`p-4 flex flex-wrap items-center gap-3 ${breached ? "bg-red-50" : "bg-amber-50"}`}>
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${
-                        breached ? "bg-red-600 text-white" : "bg-amber-500 text-white"
-                      }`}
-                    >
-                      {breached ? <ShieldAlert className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-                      {a.level}
-                    </span>
-                    <span className="font-semibold text-gray-900">{a.site_name}</span>
-                    {a.company_name && (
-                      <span className="inline-flex items-center gap-1 text-sm text-gray-600">
-                        <Building2 className="w-4 h-4" /> {a.company_name}
-                      </span>
-                    )}
-                    <span className="inline-flex items-center gap-1 text-sm text-gray-700">
-                      <Wind className="w-4 h-4" /> PM2.5 {fmtNum(a.pm2_5)} · PM10 {fmtNum(a.pm10)} µg/m³
-                    </span>
-                    <span className="ml-auto flex items-center gap-1 text-xs text-gray-500">
-                      <Clock className="w-3.5 h-3.5" /> {fmtTime(a.timestamp)}
-                    </span>
-                  </div>
-                  <div className="p-4 text-sm text-gray-700">
-                    <Markdown text={a.advice} />
-                    <p className="mt-3 text-[11px] uppercase tracking-wide text-gray-400">
-                      Guidance based on Ministry of Health / WHO air-quality recommendations.
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+            {companyAlerts.map((a) => <SiteAlertCard key={a.id} a={a} />)}
           </div>
-        </section>
+        </CollapsibleSection>
 
-        {/* ============= SECTION 2: City-wide Department Escalations ============= */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Mail className="w-5 h-5 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">City-wide Department Escalations</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-              {broadcasts.length}
-            </span>
+        {/* ============ Government Ambient Site Alerts ============ */}
+        <CollapsibleSection
+          icon={<Landmark className="w-5 h-5 text-gray-700" />}
+          title="Government Ambient Site Alerts"
+          count={govAlerts.length}
+        >
+          {!error && govAlerts.length === 0 && !loading && (
+            <div className="p-6 text-center text-gray-500 border border-dashed rounded-xl text-sm">
+              No government ambient site (roadside / public area) is currently unhealthy.
+            </div>
+          )}
+          <div className="space-y-4">
+            {govAlerts.map((a) => <SiteAlertCard key={a.id} a={a} />)}
           </div>
+        </CollapsibleSection>
 
+        {/* ============= City-wide Department Escalations ============= */}
+        <CollapsibleSection
+          icon={<Mail className="w-5 h-5 text-gray-700" />}
+          title="City-wide Department Escalations"
+          count={broadcasts.length}
+        >
           {!error && broadcasts.length === 0 && !loading && (
             <div className="p-6 text-center text-gray-500 border border-dashed rounded-xl text-sm">
               No city-wide escalations. When at least half of Hanoi&apos;s sites reach warning or
               breached level, tailored directives for each ministry appear here.
             </div>
           )}
-
           <div className="space-y-8">
             {broadcasts.map((b) => {
               const breached = b.level === "BREACHED";
@@ -390,7 +435,7 @@ export default function AlertsPage() {
               );
             })}
           </div>
-        </section>
+        </CollapsibleSection>
       </div>
     </AuthGuard>
   );
