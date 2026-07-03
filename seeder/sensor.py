@@ -261,7 +261,12 @@ def hcm_values(sensor, when=None):
 # or PM10 in [50,75]; BREACHED when PM2.5 > 40 or PM10 > 75. The bands below stay
 # safely inside those ranges so a mode reliably produces that state.
 def gen_values(mode, sensor, critical_site_id, when=None):
-    site_id = sensor["site_id"]
+    # OpenAQ-backed HCMC sensors always keep their OpenAQ readings — they are the
+    # real ingested data, so they stay untouched by demo modes and the healthy
+    # default below. (The VinUniversity ESP32 is excluded from the seeder entirely
+    # at load time, so it never reaches here.)
+    if is_hcm_sensor(sensor):
+        return hcm_values(sensor, when)
     if mode == "breached":
         pm25 = round(random.uniform(80, 110), 2)   # well above the >40 breach line
         pm10 = round(random.uniform(140, 180), 2)  # well above the >75 breach line
