@@ -378,7 +378,7 @@ def fetch_weather_for_points(points: list) -> dict:
     # ignores the default socket timeout — so a dead weather host hangs indefinitely.
     # Force a per-request timeout on the session itself so it fails fast to NaN.
     import functools
-    retry_session.request = functools.partial(retry_session.request, timeout=4)
+    retry_session.request = functools.partial(retry_session.request, timeout=2)
     om             = openmeteo_requests.Client(session=retry_session)
 
     # Belt-and-suspenders: also cap the socket connect/read time; restored after.
