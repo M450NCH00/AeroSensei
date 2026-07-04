@@ -374,10 +374,14 @@ def fetch_weather_for_points(points: list) -> dict:
     # unreachable from the server. Retries × handshake stalls would push the whole
     # forecast past the frontend's 30s timeout. One attempt, then fall back to NaN.
     retry_session  = retry(cache_session, retries=0, backoff_factor=0.2)
+    # openmeteo_requests makes requests through this session with NO timeout, and it
+    # ignores the default socket timeout — so a dead weather host hangs indefinitely.
+    # Force a per-request timeout on the session itself so it fails fast to NaN.
+    import functools
+    retry_session.request = functools.partial(retry_session.request, timeout=4)
     om             = openmeteo_requests.Client(session=retry_session)
 
-    # Cap the socket connect/read time so a stalled TLS handshake can't hang the
-    # request; restored afterwards so it doesn't affect InfluxDB/Postgres sockets.
+    # Belt-and-suspenders: also cap the socket connect/read time; restored after.
     import socket
     _prev_timeout = socket.getdefaulttimeout()
     socket.setdefaulttimeout(3)
