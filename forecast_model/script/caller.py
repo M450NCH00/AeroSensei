@@ -152,7 +152,7 @@ def _fetch_open_meteo_wind(lat: float, lon: float) -> float:
         # become unreachable from the server (TLS handshake stalls). Fail fast to
         # NaN so a dead weather host can't push the whole forecast past the
         # frontend's 30s timeout — it's called once per neighbour grid point.
-        resp = requests.get(url, params=params, timeout=2)
+        resp = requests.get(url, params=params, timeout=1)
         resp.raise_for_status()
         return resp.json()["current"]["wind_speed_10m"]
     except Exception:
@@ -378,7 +378,7 @@ def fetch_weather_for_points(points: list) -> dict:
     # ignores the default socket timeout — so a dead weather host hangs indefinitely.
     # Force a per-request timeout on the session itself so it fails fast to NaN.
     import functools
-    retry_session.request = functools.partial(retry_session.request, timeout=2)
+    retry_session.request = functools.partial(retry_session.request, timeout=1)
     om             = openmeteo_requests.Client(session=retry_session)
 
     # Belt-and-suspenders: also cap the socket connect/read time; restored after.
