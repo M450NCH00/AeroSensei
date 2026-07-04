@@ -148,7 +148,11 @@ def _fetch_open_meteo_wind(lat: float, lon: float) -> float:
         "forecast_days":   1,
     }
     try:
-        resp = requests.get(url, params=params, timeout=5)
+        # Short timeout: this hits api.open-meteo.com, which has intermittently
+        # become unreachable from the server (TLS handshake stalls). Fail fast to
+        # NaN so a dead weather host can't push the whole forecast past the
+        # frontend's 30s timeout — it's called once per neighbour grid point.
+        resp = requests.get(url, params=params, timeout=2)
         resp.raise_for_status()
         return resp.json()["current"]["wind_speed_10m"]
     except Exception:
@@ -366,39 +370,51 @@ def fetch_weather_for_points(points: list) -> dict:
     Returns {name: {variable: value}} for the latest available hour.
     """
     cache_session  = requests_cache.CachedSession(".cache", expire_after=300)
-    retry_session  = retry(cache_session, retries=3, backoff_factor=0.3)
+    # No retries: this hits api.open-meteo.com, which has intermittently become
+    # unreachable from the server. Retries × handshake stalls would push the whole
+    # forecast past the frontend's 30s timeout. One attempt, then fall back to NaN.
+    retry_session  = retry(cache_session, retries=0, backoff_factor=0.2)
     om             = openmeteo_requests.Client(session=retry_session)
 
+    # Cap the socket connect/read time so a stalled TLS handshake can't hang the
+    # request; restored afterwards so it doesn't affect InfluxDB/Postgres sockets.
+    import socket
+    _prev_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(3)
+
     results = {}
-    for name, lat, lon in points:
-        params = {
-            "latitude":       lat,
-            "longitude":      lon,
-            "hourly":         WEATHER_VARS,
-            "forecast_days":  1,
-            "timezone":       "Asia/Bangkok",
-        }
-        try:
-            responses = om.weather_api("https://api.open-meteo.com/v1/forecast", params=params)
-            r         = responses[0]
-            hourly    = r.Hourly()
+    try:
+        for name, lat, lon in points:
+            params = {
+                "latitude":       lat,
+                "longitude":      lon,
+                "hourly":         WEATHER_VARS,
+                "forecast_days":  1,
+                "timezone":       "Asia/Bangkok",
+            }
+            try:
+                responses = om.weather_api("https://api.open-meteo.com/v1/forecast", params=params)
+                r         = responses[0]
+                hourly    = r.Hourly()
 
-            # Build a small DataFrame for this point, take the last row (most recent hour)
-            hourly_data = {"time": pd.date_range(
-                start   = pd.to_datetime(hourly.Time(),    unit="s", utc=True),
-                end     = pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
-                freq    = pd.Timedelta(seconds=hourly.Interval()),
-                inclusive="left",
-            )}
-            for idx, var in enumerate(WEATHER_VARS):
-                hourly_data[f"weather_{var}"] = hourly.Variables(idx).ValuesAsNumpy()
+                # Build a small DataFrame for this point, take the last row (most recent hour)
+                hourly_data = {"time": pd.date_range(
+                    start   = pd.to_datetime(hourly.Time(),    unit="s", utc=True),
+                    end     = pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
+                    freq    = pd.Timedelta(seconds=hourly.Interval()),
+                    inclusive="left",
+                )}
+                for idx, var in enumerate(WEATHER_VARS):
+                    hourly_data[f"weather_{var}"] = hourly.Variables(idx).ValuesAsNumpy()
 
-            point_df = pd.DataFrame(hourly_data).iloc[-1]   # latest hour
-            results[name] = point_df.to_dict()
+                point_df = pd.DataFrame(hourly_data).iloc[-1]   # latest hour
+                results[name] = point_df.to_dict()
 
-        except Exception as e:
-            print(f"[weather] failed for {name} ({lat},{lon}): {e}", flush=True)
-            results[name] = {f"weather_{v}": np.nan for v in WEATHER_VARS}
+            except Exception as e:
+                print(f"[weather] failed for {name} ({lat},{lon}): {e}", flush=True)
+                results[name] = {f"weather_{v}": np.nan for v in WEATHER_VARS}
+    finally:
+        socket.setdefaulttimeout(_prev_timeout)
 
     return results
 
