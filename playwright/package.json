@@ -1,0 +1,11 @@
+{
+  "name": "aerosensei-presentation-playwright",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "demo": "playwright test presentation-demo.spec.js --headed --project=chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

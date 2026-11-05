@@ -1,26 +1,74 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@layer utilities {
+  /* Apple-Style Color Shifting and Floating Animation */
+  @keyframes blob-shift {
+    0% { 
+      transform: translate(0px, 0px) scale(1); 
+      filter: blur(120px) hue-rotate(0deg); 
+    }
+    33% { 
+      transform: translate(40px, -60px) scale(1.1); 
+      filter: blur(120px) hue-rotate(45deg); /* Shifts the color forward */
+    }
+    66% { 
+      transform: translate(-30px, 30px) scale(0.9); 
+      filter: blur(120px) hue-rotate(-45deg); /* Shifts the color backward */
+    }
+    100% { 
+      transform: translate(0px, 0px) scale(1); 
+      filter: blur(120px) hue-rotate(0deg); 
+    }
+  }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  .animate-blob-shift {
+    filter: blur(120px);
+    animation: blob-shift 15s infinite ease-in-out;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  .animation-delay-2000 {
+    animation-delay: 2s;
+  }
+  .animation-delay-4000 {
+    animation-delay: 4s;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* --- LEAFLET FANCY OVERRIDES --- */
+.leaflet-container {
+  background: transparent !important;
+  font-family: inherit;
+}
+
+/* Strips the default Leaflet white square from our custom icons */
+.custom-leaflet-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Glassmorphism for Popups */
+.custom-popup .leaflet-popup-content-wrapper {
+  background: rgba(255, 255, 255, 0.85) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* The little triangle pointing to the pin */
+.custom-popup .leaflet-popup-tip {
+  background: rgba(255, 255, 255, 0.85) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Customize the X close button */
+.custom-popup .leaflet-popup-close-button {
+  color: #9CA3AF !important;
+  margin-top: 8px !important;
+  margin-right: 8px !important;
+  font-weight: 900 !important;
 }

@@ -1,0 +1,19 @@
+{
+  "comment": "AeroSensei: route ESP32 air-quality telemetry from AWS IoT Core to the InfluxDB-writer Lambda. Create with: aws iot create-topic-rule --rule-name aerosensei_telemetry_to_influx --topic-rule-payload file://iot-rule.json",
+  "sql": "SELECT sensor_id, site_id, site_name, pm1_0, pm2_5, pm4_0, pm10, nc0_5, timestamp_ns FROM 'aerosensei/telemetry/#'",
+  "awsIotSqlVersion": "2016-03-23",
+  "ruleDisabled": false,
+  "actions": [
+    {
+      "lambda": {
+        "functionArn": "arn:aws:lambda:ap-southeast-1:REPLACE_ACCOUNT_ID:function:aerosensei-iot-to-influx"
+      }
+    }
+  ],
+  "errorAction": {
+    "cloudwatchLogs": {
+      "logGroupName": "/aws/iot/aerosensei-telemetry-errors",
+      "roleArn": "arn:aws:iam::REPLACE_ACCOUNT_ID:role/aerosensei-iot-rule-error-role"
+    }
+  }
+}

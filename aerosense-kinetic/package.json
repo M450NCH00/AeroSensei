@@ -13,17 +13,25 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "@react-three/rapier": "^2.2.0",
+    "axios": "^1.17.0",
     "framer-motion": "^12.40.0",
     "gsap": "^3.15.0",
+    "jwt-decode": "^4.0.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.17.0",
     "matter-js": "^0.20.0",
     "next": "16.2.7",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-leaflet": "^5.0.0",
+    "react-markdown": "^9.1.0",
+    "recharts": "^3.9.0",
+    "remark-gfm": "^4.0.1",
     "three": "^0.184.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.21",
     "@types/matter-js": "^0.20.2",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -31,9 +39,18 @@
     "concurrently": "^10.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
+    "lightningcss": "^1.32.0",
     "open-cli": "^9.0.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wait-on": "^9.0.10"
+  },
+  "optionalDependencies": {
+    "@next/swc-linux-arm64-gnu": "16.2.7",
+    "@next/swc-linux-x64-gnu": "16.2.7",
+    "@tailwindcss/oxide-linux-arm64-gnu": "4.3.0",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.0",
+    "lightningcss-linux-arm64-gnu": "1.32.0",
+    "lightningcss-linux-x64-gnu": "1.32.0"
   }
 }

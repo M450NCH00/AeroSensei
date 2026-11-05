@@ -1,16 +1,23 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { ArrowDown, Wind, ShieldAlert, Activity, Database, LayoutDashboard } from "lucide-react";
+// 1. Added the 'Map' icon to your lucide-react imports
+import { ArrowDown, Wind, ShieldAlert, Activity, Database, LayoutDashboard, Map } from "lucide-react";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
 
-const LanyardScene = dynamic(() => import("../components/physics/LanyardScene"), { ssr: false });
+const LanyardScene = dynamic(() => import("./components/LanyardScene"), { ssr: false });
+
+// Module-scoped cache of the decoded background frames. It persists across
+// client-side navigations (leaving and returning to this page), so the sequence
+// is fetched + decoded once per session instead of re-loading (~16s) every time.
+let cachedFrames: HTMLImageElement[] | null = null;
 
 export default function HomePage() {
   const [showBadge, setShowBadge] = useState(false);
@@ -18,32 +25,50 @@ export default function HomePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRefs = useRef<(HTMLDivElement | null)[]>([]);
   
-  // Set this to the exact number of frames you extracted
-  const frameCount = 150; 
-  const [images, setImages] = useState<HTMLImageElement[]>([]);
+  const frameCount = 100; // matches the files actually present in /public/sequence
+  // Seed from the cache so a return visit renders instantly (no re-fetch).
+  const [images, setImages] = useState<HTMLImageElement[]>(cachedFrames ?? []);
 
-  // 1. PRELOAD IMAGES
   useEffect(() => {
-    const loadedImages: HTMLImageElement[] = [];
+    // Already loaded earlier this session — reuse the decoded frames immediately.
+    if (cachedFrames) {
+      setImages(cachedFrames);
+      return;
+    }
+
+    const loadedImages: HTMLImageElement[] = new Array(frameCount);
     let loadedCount = 0;
+    let cancelled = false;
 
     for (let i = 1; i <= frameCount; i++) {
       const img = new Image();
-      // Matches the format frame_001.jpg, frame_012.jpg, etc.
+      // Load in the background at low priority + async decode so the sequence
+      // never contends with route navigation — the nav links stay clickable
+      // while the frames stream in.
+      img.decoding = "async";
+      (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = "low";
       img.src = `/sequence/ezgif-frame-${i.toString().padStart(3, "0")}.jpg`;
-      
+
       img.onload = () => {
         loadedCount++;
-        if (loadedCount === frameCount) {
-          // Only set the images to state once every single frame is downloaded
-          setImages(loadedImages);
+        // Publish the first frame as soon as it arrives so the background paints
+        // right away instead of staying black until all 100 have loaded.
+        if (loadedCount === 1 && !cancelled) {
+          setImages((prev) => (prev.length ? prev : loadedImages));
+        }
+        if (loadedCount === frameCount && !cancelled) {
+          cachedFrames = loadedImages;
+          setImages([...loadedImages]); // final: all frames ready for scroll scrub
         }
       };
-      loadedImages.push(img);
+      loadedImages[i - 1] = img;
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // 2. GSAP CANVAS SCRUBBING
   useEffect(() => {
     if (!containerRef.current || !canvasRef.current || images.length === 0) return;
 
@@ -51,18 +76,18 @@ export default function HomePage() {
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    // Set canvas dimensions to match the window
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    // Helper function to draw an image like CSS "object-fit: cover"
     const renderFrame = (index: number) => {
       const img = images[index];
-      if (!img) return;
+      // Skip frames that haven't decoded yet (progressive load / scrub) — the
+      // previously drawn frame stays until this one is ready.
+      if (!img || !img.complete || img.naturalWidth === 0) return;
 
       const hRatio = canvas.width / img.width;
       const vRatio = canvas.height / img.height;
-      const ratio = Math.max(hRatio, vRatio); // Max makes it cover, Min makes it contain
+      const ratio = Math.max(hRatio, vRatio);
       const centerShift_x = (canvas.width - img.width * ratio) / 2;
       const centerShift_y = (canvas.height - img.height * ratio) / 2;
 
@@ -74,28 +99,24 @@ export default function HomePage() {
       );
     };
 
-    // Draw the very first frame immediately
     renderFrame(0);
 
     let ctx = gsap.context(() => {
-      // Create a dummy object to animate
       const playhead = { frame: 0 };
 
-      // Animate the playhead from 0 to max frames
       gsap.to(playhead, {
         frame: frameCount - 1,
-        snap: "frame", // Forces the number to be a whole integer
+        snap: "frame",
         ease: "none",
         scrollTrigger: {
           trigger: containerRef.current,
           start: "top top",
           end: "bottom bottom",
-          scrub: 0.5, // 0.5 adds a microscopic smoothing delay
+          scrub: 0.5,
         },
-        onUpdate: () => renderFrame(playhead.frame), // Draw the frame every time we scroll
+        onUpdate: () => renderFrame(playhead.frame),
       });
 
-      // Standard Text Reveals
       textRefs.current.forEach((section) => {
         if (!section) return;
         gsap.fromTo(
@@ -113,11 +134,10 @@ export default function HomePage() {
       });
     }, containerRef);
 
-    // Handle window resize dynamically
     const handleResize = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      renderFrame(0); // Redraw immediately on resize
+      renderFrame(0);
     };
     window.addEventListener("resize", handleResize);
 
@@ -125,7 +145,7 @@ export default function HomePage() {
       ctx.revert();
       window.removeEventListener("resize", handleResize);
     };
-  }, [images]); // Only run this effect AFTER images are fully loaded
+  }, [images]);
 
   const addToRefs = (el: HTMLDivElement) => {
     if (el && !textRefs.current.includes(el)) textRefs.current.push(el);
@@ -165,11 +185,25 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* 2. UPGRADED NAVBAR: Added the Public Map Button */}
         <nav className="fixed top-0 w-full p-8 flex justify-between items-center z-50 backdrop-blur-md border-b border-white/5 bg-black/20">
-          <div className="font-black text-2xl tracking-widest">AEROSENSE</div>
-          <button className="px-6 py-2 bg-white/10 border border-white/20 font-medium rounded-full hover:bg-white hover:text-black transition-all duration-300">
-            Launch Dashboard
-          </button>
+          <div className="font-black text-2xl tracking-widest drop-shadow-md">AEROSENSE</div>
+          <div className="flex items-center gap-4">
+            <Link href="/public-map">
+              <button 
+                className="px-6 py-2 bg-white/10 border border-white/20 font-medium rounded-full hover:bg-white hover:text-black transition-all duration-300"
+              >
+                Live Quality Map
+              </button>
+            </Link>
+            <Link href="/login">
+              <button 
+                className="px-6 py-2 bg-white/10 border border-white/20 font-medium rounded-full hover:bg-white hover:text-black transition-all duration-300"
+              >
+                Launch Dashboard
+              </button>
+            </Link>
+          </div>
         </nav>
 
         <section className="h-screen flex flex-col items-center justify-center px-8 text-center">
@@ -225,17 +259,28 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* 3. UPGRADED CTA SECTION: Added dual-action buttons */}
         <section className="h-[80vh] flex flex-col items-center justify-center bg-white/5 backdrop-blur-xl border-t border-white/10 px-8 text-center rounded-t-[4rem] relative overflow-hidden mt-32">
           <h2 className="text-5xl md:text-7xl font-black tracking-tighter drop-shadow-lg">
             Ready to deploy?
           </h2>
-          <button 
-            onClick={() => setShowBadge(true)}
-            className="mt-12 px-14 py-5 bg-white text-black text-xl font-bold rounded-full hover:scale-110 transition-transform shadow-[0_0_40px_rgba(255,255,255,0.4)]"
-          >
-            Contact the Team
-          </button>
+          
+          <div className="flex flex-col sm:flex-row items-center gap-6 mt-12">
+            <Link href="/public-map">
+              <button className="flex items-center gap-3 px-10 py-5 bg-white/5 border border-white/10 text-white text-xl font-bold rounded-full hover:bg-white/10 transition-all duration-300">
+                <Map size={24} className="text-gray-400" /> View Live Map
+              </button>
+            </Link>
+            
+            <button 
+              onClick={() => setShowBadge(true)}
+              className="px-14 py-5 bg-white text-black text-xl font-bold rounded-full hover:scale-105 transition-transform shadow-[0_0_40px_rgba(255,255,255,0.4)]"
+            >
+              Contact the Team
+            </button>
+          </div>
         </section>
+        
       </div>
     </main>
   );

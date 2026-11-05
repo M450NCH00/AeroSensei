@@ -1,4 +1,104 @@
 services:
+  # --- NGINX REVERSE PROXY (CORS + HTTP Load Balancer) ---
+  nginx:
+    image: nginx:alpine
+    container_name: aerosensei-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # TLS certs (generated on the host, not committed — see certs/ in .gitignore).
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
+      - backend
+      - ai-agent
+      - forecast-model
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- MESSAGE BROKER ---
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: kafka-broker
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: on-failure
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Creating Kafka topics...';
+      /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 --topic carbon-buy-requests;
+      /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1 --topic carbon-sell-listings;
+      /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic carbon-matching-complete;
+      /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic carbon-buy-requests.DLT;
+      /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1 --topic carbon-sell-listings.DLT;
+      echo 'All Kafka topics created.';
+      "
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8888:8080"
+    environment:
+      DYNAMIC_CONFIG_ENABLED: "true"
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8080/actuator/health || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   # --- TIME-SERIES DATABASE (Sensor Readings) ---
   influxdb:
     image: influxdb:2.7
@@ -12,10 +112,36 @@ services:
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=ChangeThisPassword123!
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password
       - DOCKER_INFLUXDB_INIT_ORG=my-org
-      - DOCKER_INFLUXDB_INIT_BUCKET=my-bucket
+      - DOCKER_INFLUXDB_INIT_BUCKET=sensors_data
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-admin-token-12345
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Provisions the InfluxDB Task that watches air_quality readings and calls the
+  # ai-agent's /alert endpoint directly when a site breaches PM thresholds —
+  # InfluxDB triggers the alert, no backend involved. Re-run safe (idempotent).
+  influx-task-setup:
+    image: influxdb:2.7
+    container_name: influx-task-setup
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: on-failure
+    volumes:
+      - ./influxdb/tasks:/tasks:ro
+      - ./influxdb/setup-tasks.sh:/setup-tasks.sh:ro
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+    entrypoint: ["/bin/sh", "/setup-tasks.sh"]
 
   # --- RELATIONAL DATABASE (Sensor Metadata & Coordinates) ---
   postgres:
@@ -26,13 +152,388 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./DatabaseSQL/Query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/sensor_registry_initialization.sql
+      - ./postgresql/query/role_permissions_initialization.sql:/docker-entrypoint-initdb.d/01_user_roles_initialization.sql
+      - ./postgresql/query/user_registry_initialization.sql:/docker-entrypoint-initdb.d/02_user_registry_initialization.sql
+      - ./postgresql/query/sectors_initialization.sql:/docker-entrypoint-initdb.d/03_sectors_initialization.sql
+      - ./postgresql/query/company_registry_initialization.sql:/docker-entrypoint-initdb.d/04_company_registry_initialization.sql
+      - ./postgresql/query/company_site_initialization.sql:/docker-entrypoint-initdb.d/05_company_site_initialization.sql
+      - ./postgresql/query/sensor_registry_initialization.sql:/docker-entrypoint-initdb.d/06_sensor_registry_initialization.sql
+      - ./postgresql/query/alert_registry_initialization.sql:/docker-entrypoint-initdb.d/07_alert_registry_initialization.sql
+      - ./postgresql/query/carbon_transactions_initialization.sql:/docker-entrypoint-initdb.d/08_carbon_transactions_initialization.sql
+      - ./postgresql/query/carbon_listings_initialization.sql:/docker-entrypoint-initdb.d/09_carbon_listings_initialization.sql
+      - ./postgresql/query/carbon_allocations_initialization.sql:/docker-entrypoint-initdb.d/10_carbon_allocations_initialization.sql
+      - ./postgresql/query/emission_reports_initialization.sql:/docker-entrypoint-initdb.d/11_emission_reports_initialization.sql
+      - ./postgresql/query/compliance_cycles_initialization.sql:/docker-entrypoint-initdb.d/12_compliance_cycles_initialization.sql
+      - ./postgresql/query/carbon_allocations_seed.sql:/docker-entrypoint-initdb.d/13_carbon_allocations_seed.sql
+      - ./postgresql/query/fines_initialization.sql:/docker-entrypoint-initdb.d/14_fines_initialization.sql
+      - ./postgresql/query/chat_initialization.sql:/docker-entrypoint-initdb.d/15_chat_initialization.sql
     environment:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=ChangeThisPassword123!
-      - POSTGRES_DB=sensor_metadata
+      - POSTGRES_DB=postgresdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d postgresdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: pgadmin
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5050:80"
+  #   environment:
+  #     - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+  #     - PGADMIN_DEFAULT_PASSWORD=admin
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget -qO- http://localhost:80 || exit 1"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: aerosensei-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build: ./backend # Points to the folder containing your new Dockerfile
+    container_name: aerosensei-backend
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      - DB_URL=jdbc:postgresql://postgresdb:5432/postgresdb
+      - DB_USER=admin
+      - DB_PASSWORD=ChangeThisPassword123!
+      - JWT_SECRET=your-hackathon-super-secret-key-xyz123
+      # Shared internal secret for the backend -> agent hand-offs (/alert, /enforce).
+      # Must match the ai-agent's INTERNAL_API_SECRET below.
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+      # Enable the agent auto-fine hand-off after the nightly PM check (off by default).
+      - ENFORCEMENT_AUTO_FINE=${ENFORCEMENT_AUTO_FINE:-false}
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      # Forecast (ML) engine — reached by its compose service name (maps to the
+      # Spring property ml.api.url used in SensorService).
+      - ML_API_URL=http://forecast-model:8000
+      - INFLUX_ORG:my-org
+      - INFLUX_TOKEN:my-super-secret-admin-token-12345
+      - INFLUX_URL:http://influxdb:8086
+      - INFLUX_BUCKET:sensors_data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl -f http://localhost:8081/actuator/health | grep -q ''"status":"UP"''',
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # --- AI AGENT ---
+  ai-agent:
+    build:
+      context: ./ai_agent
+      dockerfile: Dockerfile
+    container_name: ai-agent
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    depends_on:
+      backend:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # --- LLM provider ---
+      # Using DeepSeek's OpenAI-compatible, tool-calling API (via LiteLLM).
+      # Supply DEEPSEEK_API_KEY in ./.env; DEEPSEEK_MODEL defaults to deepseek-chat.
+      - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      # Legacy LiteLLM-gateway / Ollama settings (unused while LLM_PROVIDER=deepseek).
+      - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash}
+      - LITELLM_API_BASE=${LITELLM_API_BASE:-}
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - LLM_MAX_TOOL_ITERATIONS=5
+      # --- Tool execution target (existing backend) ---
+      - BACKEND_BASE_URL=http://backend:8081
+      # --- Auth: MUST match the backend's JWT_SECRET ---
+      - JWT_SECRET=your-hackathon-super-secret-key-xyz123
+      # Regulators carry the 'Government' role; mirror the backend's hasAnyRole('GOVERNMENT','ADMIN').
+      - AGENT_ALLOWED_ROLES=GOVERNMENT,ADMIN
+      - FRONTEND_ORIGIN=http://localhost
+      # --- Internal alerting (backend -> agent -> telegram) ---
+      # Shared secret the backend must send (X-Internal-Secret) to trigger /alert and /enforce.
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-}
+      # --- Autonomous enforcement: agent auto-issues fines for BREACHED alerts ---
+      # Off by default. Flip to true (here AND on the backend) to enable the nightly
+      # auto-fine sweep; the agent mints a GOVERNMENT system token from JWT_SECRET.
+      - ENFORCEMENT_AUTO_FINE=${ENFORCEMENT_AUTO_FINE:-false}
+      # Telegram bot push endpoint + its NOTIFY_SECRET (must match below).
+      - TELEGRAM_NOTIFY_URL=http://telegram-bot:5002/notify
+      - TELEGRAM_NOTIFY_SECRET=${NOTIFY_SECRET:-}
+      # --- City-wide ministry email escalation (backend -> agent -> ministries) ---
+      # If SMTP_HOST is unset, ministry emails are composed and LOGGED (not sent),
+      # so the flow works out-of-the-box in dev. Set these to send real email.
+      - MINISTRY_EMAIL_ENABLED=${MINISTRY_EMAIL_ENABLED:-true}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+      - SMTP_FROM=${SMTP_FROM:-AeroSense Alerts <no-reply@aerosensei.vn>}
+      # Optional: funnel every ministry email to one inbox for demos/testing.
+      - MINISTRY_TEST_RECIPIENT=${MINISTRY_TEST_RECIPIENT:-}
+      # Public URL the browser uses to download generated PDF reports (matches the
+      # host-exposed port and the frontend's NEXT_PUBLIC_AI_AGENT_URL).
+      - AGENT_PUBLIC_URL=http://localhost/agent
+      # MinIO (S3) — where generated PDF reports are stored.
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_REPORTS_BUCKET=reports
+      # Backups bucket the cron writes to; served via the Historical Data tab.
+      - MINIO_BACKUPS_BUCKET=influx-backups
+      # InfluxDB source for the on-demand "Backup now" trigger.
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INFLUX_BUCKET=sensors_data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:5001/health'')"',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # --- TELEGRAM BOT (two-way chat with the AI agent + push notifications) ---
+  telegram-bot:
+    build:
+      context: ./telegram_bot
+      dockerfile: Dockerfile
+    container_name: aerosensei-telegram-bot
+    restart: unless-stopped
+    depends_on:
+      ai-agent:
+        condition: service_healthy
+    environment:
+      # REQUIRED — get this from @BotFather. Prefer setting it in a .env file
+      # (compose auto-loads ./.env) rather than committing a real token.
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      # Chats allowed to chat with the bot AND to receive push notifications.
+      # Message the bot then /start to learn your numeric chat id, then add it here.
+      - TELEGRAM_ALLOWED_CHAT_IDS=${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      # Identity the bot assumes when calling the agent (mirrors a seeded gov user).
+      - AGENT_EMAIL=government@example.com
+      - AGENT_ROLES=GOVERNMENT
+      - AI_AGENT_URL=http://ai-agent:5001
+      # MUST match the backend/agent JWT secret.
+      - JWT_SECRET=your-hackathon-super-secret-key-xyz123
+      # Shared secret required to POST /notify (push). Set in .env.
+      - NOTIFY_SECRET=${NOTIFY_SECRET:-}
+      - NOTIFY_PORT=5002
+    # /notify is internal-only by default. Uncomment to reach it from the host:
+    # ports:
+    #   - "5002:5002"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:5002/health'')"',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./aerosense-kinetic
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* vars get baked into the client bundle at build time —
+        # must be passed as build args, not just runtime `environment:` below.
+        # Left EMPTY on purpose: the frontend falls back to same-origin relative
+        # paths (/api, /ml, /agent) so the browser calls whatever host served the
+        # page (localhost in dev, the EC2 DNS/IP in prod) through nginx. Do NOT
+        # hardcode a host here — that ships a bundle that calls the user's own
+        # machine. Set a full origin only to target a *different* backend host.
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_AI_AGENT_URL: ""
+        NEXT_PUBLIC_ML_API_URL: ""
+    image: aerosense-frontend:latest
+    container_name: aerosense-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+      ai-agent:
+        condition: service_healthy
+    environment:
+      # Runtime values are inert for NEXT_PUBLIC_* (they're baked at build time,
+      # see args above) — kept empty to match and avoid confusion.
+      - NEXT_PUBLIC_API_URL=
+      - NEXT_PUBLIC_AI_AGENT_URL=
+      - NEXT_PUBLIC_ML_API_URL=
+    healthcheck:
+      # Use 127.0.0.1 (IPv4), not localhost: inside the container localhost
+      # resolves to IPv6 ::1, but next-server listens on IPv4 0.0.0.0 only —
+      # probing localhost gets "connection refused" and falsely marks unhealthy.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # --- OBJECT STORAGE (MinIO) ---
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f http://localhost:9000/minio/health/live || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  minio-init:
+    image: minio/minio:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: on-failure
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set dockerminio http://minio:9000 minioadmin minioadmin123;
+      /usr/bin/mc mb dockerminio/influx-backups;
+      /usr/bin/mc mb dockerminio/reports;
+      exit 0;
+      "
+
+  backup-cron:
+    build:
+      context: ./s3
+      dockerfile: Dockerfile
+    container_name: influx-backup-cron
+    restart: unless-stopped
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INFLUX_BUCKET=sensors_data
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - BUCKET_NAME=influx-backups
+
+  seeder:
+    build: ./seeder
+    container_name: aerosensei-seeder
+    environment:
+      # InfluxDB Variables — sensor.py writes readings directly to InfluxDB
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INFLUX_BUCKET=sensors_data
+      - PG_HOST=postgresdb
+      - PG_PORT=5432
+      - PG_DB=postgresdb
+      - PG_USER=admin
+      - PG_PASS=ChangeThisPassword123!
+      - OPENAQ_API_KEY=${OPENAQ_API_KEY:-}
+      - OPENAQ_REFRESH_SECONDS=${OPENAQ_REFRESH_SECONDS:-600}
+      # Redis holds the demo emission-mode flag set from the frontend buttons.
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - influxdb
+      - postgres
+      - redis
+
+  # --- FORECAST MODEL API (PM2.5/PM10 short-horizon prediction) ---
+  forecast-model:
+    build: ./forecast_model
+    container_name: aerosensei-forecast-model
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=my-super-secret-admin-token-12345
+      - INFLUX_ORG=my-org
+      - INFLUX_BUCKET=sensors_data
+      - PG_HOST=postgresdb
+      - PG_PORT=5432
+      - PG_DB=postgresdb
+      - PG_USER=admin
+      - PG_PASS=ChangeThisPassword123!
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/docs'')"',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
 volumes:
   influxdb-data:
   influxdb-config:
   postgres-data:
+  minio-data:
